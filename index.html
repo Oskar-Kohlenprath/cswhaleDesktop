@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- Set the favicon -->
+  <link rel="icon" type="image/png" href="static/images/favicon.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CS-ASSETS Storage Unit Scanner</title>
+  <style>
+    :root {
+      --dark-blue: #1a2b45;
+      --medium-blue: #2a3f5f;
+      --light-blue: #3e5f8a;
+      --dark-grey: #2c2c2c;
+      --medium-grey: #444444;
+      --light-grey: #666666;
+      --accent: #4da6ff;
+      --text: #e6e6e6;
+    }
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    body {
+      background-color: var(--dark-blue);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      padding: 20px;
+    }
+    
+    /* Logo header styling */
+    .logo-header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    
+    .logo-header img {
+      max-width: 30%;
+      height: auto;
+    }
+    
+    .card {
+      background-color: var(--medium-blue);
+      border-radius: 8px;
+      box-shadow: 0 6px 12px rgba(0,0,0,0.3);
+      padding: 30px;
+      width: 100%;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      color: var(--text);
+      text-align: center;
+      margin-bottom: 24px;
+      font-size: 28px;
+    }
+    
+    h2 {
+      color: var(--text);
+      margin-bottom: 15px;
+      font-size: 20px;
+    }
+    
+    .login-form {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    label {
+      font-size: 14px;
+      color: var(--text);
+    }
+    
+    input {
+      padding: 12px 16px;
+      border-radius: 4px;
+      border: 1px solid var(--light-grey);
+      background-color: var(--dark-grey);
+      color: var(--text);
+      font-size: 16px;
+      transition: border-color 0.3s;
+    }
+    
+    input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    
+    button {
+      padding: 12px 24px;
+      border-radius: 4px;
+      border: none;
+      background-color: var(--accent);
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    
+    button:hover {
+      background-color: #3a8cdb;
+    }
+    
+    .divider {
+      display: flex;
+      align-items: center;
+      text-align: center;
+      margin: 15px 0;
+      color: var(--text);
+    }
+    
+    .divider::before,
+    .divider::after {
+      content: '';
+      flex: 1;
+      border-bottom: 1px solid var(--light-grey);
+    }
+    
+    .divider::before {
+      margin-right: 10px;
+    }
+    
+    .divider::after {
+      margin-left: 10px;
+    }
+    
+    .saved-accounts {
+      margin-top: 20px;
+    }
+    
+    .account-item {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      padding: 12px;
+      background-color: var(--dark-grey);
+      border-radius: 4px;
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    
+    .account-item:hover {
+      background-color: var(--medium-grey);
+    }
+    
+    .account-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background-color: var(--light-grey);
+      overflow: hidden;
+    }
+    
+    .account-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    
+    .account-info {
+      flex: 1;
+    }
+    
+    .account-name {
+      font-weight: 600;
+      font-size: 16px;
+    }
+    
+    .account-details {
+      font-size: 12px;
+      color: #a0a0a0;
+    }
+    
+    /* Dashboard styles */
+    .dashboard {
+      display: none;
+    }
+    
+    .dashboard-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+    }
+    
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .storage-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 20px;
+      margin-top: 30px;
+    }
+    
+    .storage-unit {
+      background-color: var(--dark-grey);
+      border-radius: 8px;
+      padding: 20px;
+      cursor: pointer;
+      transition: transform 0.3s, background-color 0.3s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+    
+    .storage-unit:hover {
+      background-color: var(--medium-grey);
+      transform: translateY(-5px);
+    }
+    
+    .storage-unit img {
+      width: 80px;
+      height: 80px;
+      object-fit: contain;
+      margin-bottom: 15px;
+    }
+    
+    .storage-name {
+      font-weight: 600;
+      margin-bottom: 5px;
+    }
+    
+    .storage-items {
+      font-size: 14px;
+      color: #a0a0a0;
+    }
+    
+    /* Casket contents display (not used for deep check modal) */
+    .casket-contents {
+      margin-top: 30px;
+      background-color: var(--medium-blue);
+      border-radius: 8px;
+      padding: 20px;
+      width: 100%;
+      max-width: 500px;
+    }
+    
+    .casket-contents ul {
+      list-style: none;
+      padding-left: 0;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    
+    .casket-contents li {
+      padding: 5px 0;
+      border-bottom: 1px solid var(--light-grey);
+    }
+    
+    /* Loading indicator overlay with progress bar */
+    .loading-indicator {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.7);
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 1002;
+    }
+    
+    .spinner {
+      border: 8px solid var(--dark-grey);
+      border-top: 8px solid var(--accent);
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      animation: spin 1s linear infinite;
+    }
+    
+    #progressBarContainer {
+      width: 300px;
+      height: 20px;
+      background-color: var(--dark-grey);
+      border-radius: 5px;
+      margin-top: 20px;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    #progressBar {
+      height: 100%;
+      background-color: var(--accent);
+      width: 0%;
+      transition: width 0.1s ease;
+    }
+    
+    #progressText {
+      margin-top: 10px;
+      text-align: center;
+      color: #fff;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    /* Modal styles for Steam Guard */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1001;
+    }
+    
+    .modal-content {
+      background-color: var(--medium-blue);
+      padding: 20px;
+      border-radius: 8px;
+      width: 300px;
+      text-align: center;
+    }
+    
+    .modal-content input {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+    }
+    
+    .modal-content button {
+      margin-top: 15px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      background-color: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    
+    .modal-content button:hover {
+      background-color: #3a8cdb;
+    }
+    
+    /* Modal for scan results */
+    .scan-result-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1003;
+    }
+    
+    .scan-result-content {
+      background-color: var(--medium-blue);
+      padding: 20px;
+      border-radius: 8px;
+      width: 450px;
+      max-height: 80vh;
+      overflow: hidden;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .scan-result-content h2 {
+      margin-bottom: 10px;
+    }
+    
+    .scan-result-content p {
+      margin-bottom: 15px;
+    }
+    
+    .scan-result-list {
+      list-style: none;
+      padding-left: 0;
+      overflow-y: auto;
+      flex-grow: 1;
+      max-height: 300px;
+      text-align: left;
+      border-top: 1px solid var(--light-grey);
+      padding-top: 10px;
+    }
+    
+    .scan-result-list li {
+      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .scan-result-list li img {
+      width: 50px;
+      height: 50px;
+      object-fit: contain;
+      padding: 5px;
+      border-radius: 4px;
+    }
+    
+    .scan-result-content button {
+      margin-top: 15px;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      background-color: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    
+    .scan-result-content button:hover {
+      background-color: #3a8cdb;
+    }
+
+    /* Neues Modal für Inventory-Full-Error */
+    #inventoryFullModal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: none;
+      justify-content: center;
+      align-items: center;
+      z-index: 1004;
+    }
+    #inventoryFullModal .modal-content {
+      background-color: var(--medium-blue);
+      padding: 20px;
+      border-radius: 8px;
+      width: 400px;
+      text-align: center;
+    }
+  </style>
+
+
+<style>
+  /* Add this to your existing CSS */
+  .no-token {
+    opacity: 0.85;
+    position: relative;
+  }
+  
+  .no-token::after {
+    content: "Manual Login";
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    background-color: var(--accent);
+    color: white;
+    font-size: 10px;
+    padding: 2px 5px;
+    border-radius: 3px;
+  }
+  
+  .modal-buttons {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 15px;
+  }
+  
+  .button {
+    display: inline-block;
+    padding: 12px 24px;
+    border-radius: 4px;
+    background-color: var(--accent);
+    color: white;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.3s;
+  }
+  
+  .button:hover {
+    background-color: #3a8cdb;
+  }
+  
+  .primary-button {
+    background-color: #2ecc71;
+  }
+  
+  .primary-button:hover {
+    background-color: #27ae60;
+  }
+</style>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+</head>
+<body>
+  <!-- Login View -->
+  <div class="container" id="login-view">
+    <!-- Logo header -->
+    <div class="logo-header">
+      <img src="static/images/logo.png" alt="Logo with text">
+    </div>
+    <div class="card">
+      <h1>Storage Unit Scanner</h1>
+
+      <!-- Username/Password Login Form -->
+      <div class="login-form">
+        <div class="form-group">
+          <label for="username">Steam Username</label>
+          <input type="text" id="username" placeholder="Enter your Steam username">
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="Enter your password">
+        </div>
+        <button onclick="login()">Login</button>
+      </div>
+      
+      <div class="divider">OR</div>
+      
+      <!-- Saved Accounts (Refresh Token) -->
+      <div class="saved-accounts">
+        <h2>Saved Accounts</h2>
+        <!-- dynamically injected from loadSavedAccounts() -->
+        <div id="savedAccountsList"></div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Dashboard View -->
+  <div class="container" id="dashboard-view" style="display: none;">
+    <!-- Logo header -->
+    <div class="logo-header">
+      <img src="static/images/logo.png" alt="Logo with text">
+    </div>
+    <div class="dashboard-header">
+      <div class="user-info">
+        <div class="account-avatar">
+          <img src="https://via.placeholder.com/40" alt="Player avatar">
+        </div>
+        <h2 id="display-username">User</h2>
+      </div>
+      <button onclick="showLogin()">Switch Account</button>
+    </div>
+    
+    <h1>Your Storage Units</h1>
+    
+    <div class="storage-grid" id="storage-grid">
+      <!-- Real storage units will be dynamically inserted here -->
+    </div>
+    
+    <!-- Casket Contents Display (not used for deep check modal) -->
+    <div class="casket-contents" id="casket-contents" style="display: none;">
+      <h2>Casket Contents</h2>
+      <ul id="contents-list"></ul>
+    </div>
+  </div>
+  
+  <!-- Loading Indicator with Progress Bar -->
+  <div class="loading-indicator" id="loadingIndicator">
+    <div id="progressContainer">
+      <div id="progressBar"></div>
+    </div>
+    <p id="progressText">0%</p>
+  </div>
+  
+  <!-- Steam Guard Modal -->
+  <div class="modal-overlay" id="steamGuardModal">
+    <div class="modal-content">
+      <h2>Steam Guard</h2>
+      <p id="steamGuardPrompt">Enter your Steam Guard code:</p>
+      <input type="text" id="steamGuardInput" placeholder="Steam Guard code">
+      <button onclick="submitSteamGuardCode()">Submit</button>
+    </div>
+  </div>
+  
+
+
+
+  <!-- Add a new modal for device 2FA confirmation (similar to SteamGuardModal) -->
+  <div class="modal-overlay" id="device2faModal" style="display: none;">
+    <div class="modal-content">
+      <h2>2FA Confirmation</h2>
+      <p>Please enter the 2FA code you received via email:</p>
+     <input type="text" id="device2faInput" placeholder="2FA code" />
+      <button onclick="submitDevice2FACode()">Submit</button>
+    </div>
+  </div>
+
+
+  <div class="modal-overlay" id="accountNotRegisteredModal" style="display: none;">
+    <div class="modal-content">
+      <h2>Account Not Registered</h2>
+      <p>The account "<span id="notRegisteredAccountName">Unknown</span>" is not registered on cs-assets.com.</p>
+      <p>Please visit cs-assets.com to add this account to your profile first.</p>
+      <div class="modal-buttons">
+        <button onclick="closeNotRegisteredModal()">Close</button>
+        <a href="https://cs-assets.com" target="_blank" class="button">Go to Website</a>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Warning Modal -->
+  <div class="modal-overlay" id="warningModal" style="display: none;">
+    <div class="modal-content">
+      <h2>Account Notice</h2>
+      <p id="warningMessage">Warning message will appear here.</p>
+      <button onclick="closeWarningModal()">Got it</button>
+    </div>
+  </div>
+
+
+
+
+
+
+
+
+
+
+
+  <!-- Scan Result Modal -->
+  <div class="scan-result-modal" id="scanResultModal">
+    <div class="scan-result-content" id="scanResultContent">
+      <h2 id="scanResultTitle">Scan Result</h2>
+      <p id="scanResultSummary"></p>
+      <ul class="scan-result-list" id="scanResultList"></ul>
+      <button onclick="closeScanResultModal()">Close</button>
+    </div>
+  </div>
+
+  <!-- Neues Modal für "Inventory Full" -->
+  <div class="modal-overlay" id="inventoryFullModal">
+    <div class="modal-content">
+      <h2>Inventory Full</h2>
+      <p>Please make room in your inventory, you can only have a max of 950 items in your inventory to start the scan process</p>
+      <button onclick="closeInventoryFullModal()">OK</button>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+  <script>
+    // Global variable for currently processing casket name
+    let currentCasketName = '';
+
+    // Expose functions globally so that onclick attributes work
+    window.login = login;
+    window.showDashboard = showDashboard;
+    window.showLogin = showLogin;
+    window.submitSteamGuardCode = submitSteamGuardCode;
+    window.closeScanResultModal = closeScanResultModal;
+    window.closeInventoryFullModal = closeInventoryFullModal;
+
+
+    window.closeNotRegisteredModal = closeNotRegisteredModal;
+    window.closeWarningModal = closeWarningModal;
+
+
+
+     // Close modals when clicking outside of content
+  document.getElementById('accountNotRegisteredModal').addEventListener('click', (event) => {
+    if (event.target === document.getElementById('accountNotRegisteredModal')) {
+      closeNotRegisteredModal();
+    }
+  });
+  
+  document.getElementById('warningModal').addEventListener('click', (event) => {
+    if (event.target === document.getElementById('warningModal')) {
+      closeWarningModal();
+    }
+  });
+
+
+
+
+
+    // On document load (or soon after), load saved accounts
+    document.addEventListener("DOMContentLoaded", () => {
+      loadSavedAccounts();
+    });
+
+    // Close scan result modal when clicking outside of content
+    document.getElementById('scanResultModal').addEventListener('click', (event) => {
+      if (event.target === document.getElementById('scanResultModal')) {
+        closeScanResultModal();
+      }
+    });
+
+    // Gleiches für das Inventory-Full-Modal
+    document.getElementById('inventoryFullModal').addEventListener('click', (event) => {
+      if (event.target === document.getElementById('inventoryFullModal')) {
+        closeInventoryFullModal();
+      }
+    });
+
+    // Handle username/password login
+    function login() {
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      if (!username || !password) {
+        alert('Please enter both username and password.');
+        return;
+      }
+      window.electronAPI.login({ username, password });
+    }
+
+    // Show the main dashboard after successful login
+    function showDashboard() {
+      document.getElementById('login-view').style.display = 'none';
+      document.getElementById('dashboard-view').style.display = 'block';
+      //const username = document.getElementById('username').value.trim() || 'User';
+      //document.getElementById('display-username').textContent = username;
+      window.electronAPI.fetchStorage();
+    }
+
+    // Return to login screen
+    function showLogin() {
+      document.getElementById('dashboard-view').style.display = 'none';
+      document.getElementById('login-view').style.display = 'block';
+      document.getElementById('scanResultModal').style.display = 'none';
+      loadSavedAccounts();  // Refresh saved accounts list
+    }
+
+    // Show / Hide loading overlay
+    function showLoadingIndicator() {
+      document.getElementById('loadingIndicator').style.display = 'flex';
+      document.getElementById('progressContainer').style.display = 'block';
+      document.getElementById('progressBar').style.width = '0%';
+      document.getElementById('progressText').textContent = '0%';
+    }
+    function hideLoadingIndicator() {
+      document.getElementById('loadingIndicator').style.display = 'none';
+    }
+
+    // Steam Guard Prompt
+    window.electronAPI.onSteamGuardRequired((domain) => {
+      const promptEl = document.getElementById('steamGuardPrompt');
+      promptEl.textContent = domain
+        ? `Enter Steam Guard code for ${domain}:`
+        : 'Enter your Steam Guard code:';
+      document.getElementById('steamGuardModal').style.display = 'flex';
+    });
+    function submitSteamGuardCode() {
+      const code = document.getElementById('steamGuardInput').value.trim();
+      if (!code) {
+        alert('Please enter the Steam Guard code.');
+        return;
+      }
+      window.electronAPI.sendSteamGuardCode(code);
+      document.getElementById('steamGuardInput').value = '';
+      document.getElementById('steamGuardModal').style.display = 'none';
+    }
+
+    // Load saved accounts from main and display them
+    async function loadSavedAccounts() {
+      try {
+        const savedAccounts = await window.electronAPI.getSavedAccounts();
+        const container = document.getElementById('savedAccountsList');
+        container.innerHTML = ''; // Clear old content
+
+        if (!savedAccounts || savedAccounts.length === 0) {
+          container.innerHTML = '<p style="text-align:center;">No saved accounts found.</p>';
+          return;
+        }
+
+        savedAccounts.forEach(acct => {
+          const div = document.createElement('div');
+          div.className = 'account-item';
+          div.onclick = () => {
+            // Attempt to login with the refresh token
+            window.electronAPI.loginWithSavedAccount(acct.steamId);
+          };
+
+          div.innerHTML = `
+          <div class="account-avatar">
+            <img src="${acct.avatarUrl || 'https://via.placeholder.com/40'}" alt="Player avatar">
+          </div>
+            <div class="account-info">
+              <div class="account-name">${acct.displayName || acct.steamId}</div>
+              <div class="account-details">Last Login: ${new Date(acct.lastUsed).toLocaleString()}</div>
+            </div>
+          `;
+          container.appendChild(div);
+        });
+      } catch (err) {
+        console.error("Error loading saved accounts:", err);
+      }
+    }
+
+    // React to login success/failure from main
+    window.electronAPI.onLoginSuccess(() => {
+      showDashboard();
+    });
+    window.electronAPI.onLoginFailed((error) => {
+      alert('Login failed: ' + error);
+    });
+
+    // Listen for storage items
+    window.electronAPI.onStorageItems((_, caskets) => {
+      const storageGrid = document.getElementById('storage-grid');
+      storageGrid.innerHTML = '';
+      if (caskets.length === 0) {
+        storageGrid.innerHTML = '<p>No storage units found.</p>';
+        return;
+      }
+      caskets.forEach((casket) => {
+        const unitDiv = document.createElement('div');
+        unitDiv.className = 'storage-unit';
+        const unitIconUrl = "https://steamcommunity-a.akamaihd.net/economy/image/" +
+          "-9a81dlWLwJ2UUGcVs_nsVtzdOEdtWwKGZZLQHTxDZ7I56KU0Zwwo4NUX4oFJZEHLbXX7gNTPcUxqAhWSVieFOX71szWCgwsdlZRsuz0L1M1iqrOIGUauNiyzdmKxKWsMrnXkjlQsIthhO5eh9dfdg";
+        
+        unitDiv.onclick = () => {
+          currentCasketName = casket.casketName;
+          unitDiv.style.pointerEvents = 'none';
+          showLoadingIndicator();
+          window.electronAPI.deepCheckCasket(casket.casketId);
+        };
+        unitDiv.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          if (confirm(`Run deep check on "${casket.casketName}"?`)) {
+            currentCasketName = casket.casketName;
+            showLoadingIndicator();
+            window.electronAPI.deepCheckCasket(casket.casketId);
+          }
+        });
+
+        unitDiv.innerHTML = `
+          <img src="${unitIconUrl}" alt="${casket.casketName}">
+          <div class="storage-name">${casket.casketName}</div>
+          <div class="storage-items">Contains ${casket.itemCount} item(s)</div>
+        `;
+        storageGrid.appendChild(unitDiv);
+      });
+    });
+
+    // Deep-check progress
+    window.electronAPI.onDeepCheckProgress((data) => {
+      const progressBar = document.getElementById('progressBar');
+      const progressText = document.getElementById('progressText');
+      const { progress, currentMovement, totalMovements } = data;
+      progressBar.style.width = progress + '%';
+      progressText.textContent = `Processing ${currentMovement} / ${totalMovements} (${progress}%)`;
+    });
+
+    // Deep-check result
+    window.electronAPI.onDeepCheckResult((data) => {
+      hideLoadingIndicator();
+
+      if (!data.success) {
+        if (data.error.includes('Weder Inventar noch Casket haben genug Platz. Abbruch.')) {
+          showInventoryFullModal();
+        } else {
+          alert(`Deep check failed: ${data.error}`);
+        }
+        return;
+      }
+
+      const items = data.newlyAddedItems;
+      const grouped = {};
+      items.forEach((item) => {
+        const name = item.market_hash_name || `Item ID: ${item.assetid}`;
+        if (!grouped[name]) {
+          grouped[name] = { count: 0, icon: item.icon_url };
+        }
+        grouped[name].count++;
+      });
+      const totalItems = items.length;
+      const sortedEntries = Object.entries(grouped).sort((a, b) => b[1].count - a[1].count);
+
+      document.getElementById('scanResultTitle').textContent = `Successfully scanned "${currentCasketName}"`;
+      document.getElementById('scanResultSummary').textContent = `${totalItems} new item(s) detected.`;
+      const resultList = document.getElementById('scanResultList');
+      resultList.innerHTML = '';
+      const baseIconUrl = "https://steamcommunity-a.akamaihd.net/economy/image/";
+
+      sortedEntries.forEach(([name, info]) => {
+        const li = document.createElement('li');
+        const img = document.createElement('img');
+        img.src = baseIconUrl + info.icon;
+        img.alt = name;
+        const span = document.createElement('span');
+        span.textContent = `${name} (${info.count})`;
+        li.appendChild(img);
+        li.appendChild(span);
+        resultList.appendChild(li);
+      });
+      document.getElementById('scanResultModal').style.display = 'flex';
+    });
+
+    function closeScanResultModal() {
+      document.getElementById('scanResultModal').style.display = 'none';
+    }
+    function showInventoryFullModal() {
+      document.getElementById('inventoryFullModal').style.display = 'flex';
+    }
+    function closeInventoryFullModal() {
+      document.getElementById('inventoryFullModal').style.display = 'none';
+    }
+
+    // Log event
+    window.electronAPI.onLogEvent((_, message) => {
+      console.log('[Log]', message);
+    });
+
+    // Handle storage errors
+    window.electronAPI.onStorageError((_, error) => {
+      hideLoadingIndicator();
+      alert(`Storage error: ${error}`);
+    });
+  </script>
+</body>
+</html>
