@@ -1,0 +1,15 @@
+# dependencies
+node_modules/
+
+# Electron build outputs
+dist/
+out/
+release/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.log
+
+# environment files
+.env
