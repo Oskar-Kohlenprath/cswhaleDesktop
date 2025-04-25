@@ -1,33 +1,121 @@
 // main.js
 require("dotenv").config();
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("path");
+const fs = require('fs');
+const os = require('os');
 
 // Steam libraries
 const SteamUser = require("steam-user");
 const GlobalOffensive = require("globaloffensive");
 const SteamCommunity = require("steamcommunity");
-const axios = require("axios"); // Make sure axios is installed via `npm install axios`
+const axios = require("axios");
 const keytar = require("keytar");
 const jwt_decode = require("jwt-decode");
 
-// Create a SteamCommunity instance for web inventory calls
-const community = new SteamCommunity();
-
-let mainWindow;
-let user; // Global SteamUser instance
-let csgo; // Global GlobalOffensive instance
-
-// Global delay ms variable
-const DELAY_MS = 130;
-
+// Constants
 const SERVICE_NAME = "cs-assets-service";
-const ACCOUNTS_KEY = "cs-assets-stored-accounts"; // you can rename these if you want
+const ACCOUNTS_KEY = "cs-assets-stored-accounts";
 const DEVICE_TOKEN_KEY = "cs-assets-device-token";
+const DELAY_MS = 130;
+const MAX_INVENTORY_SIZE = 1000;
+const MAX_CASKET_SIZE = 1000;
+const INVENTORY_BUFFER = 50; // Increased buffer for safety
+const SAFE_INVENTORY_SIZE = MAX_INVENTORY_SIZE - INVENTORY_BUFFER;
+const API_BASE_URL = "https://cs-assets-oskarkohlenprath.pythonanywhere.com/api";
 
-
+// Global variables
+let mainWindow;
+let user; // SteamUser instance
+let csgo; // GlobalOffensive instance
+let community; // SteamCommunity instance
 let lastReceivedToken = null;
+let logStream; // For file logging
 
+/**
+ * Enhanced logger with file logging and console output
+ */
+class Logger {
+  constructor() {
+    this.setupFileLogging();
+  }
+
+  setupFileLogging() {
+    try {
+      const logDir = path.join(app.getPath('userData'), 'logs');
+      
+      // Create logs directory if it doesn't exist
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
+      
+      const date = new Date().toISOString().split('T')[0];
+      const logFile = path.join(logDir, `cs-assets-${date}.log`);
+      
+      logStream = fs.createWriteStream(logFile, { flags: 'a' });
+      
+      this.info(`Logger initialized. Logs will be saved to: ${logFile}`);
+    } catch (err) {
+      console.error('Failed to set up file logging:', err);
+    }
+  }
+
+  log(message, level = 'INFO') {
+    const timestamp = new Date().toISOString();
+    const formattedMessage = `[${timestamp}] [${level}] ${message}`;
+    
+    // Log to console
+    if (level === 'ERROR') {
+      console.error(formattedMessage);
+    } else if (level === 'WARN') {
+      console.warn(formattedMessage);
+    } else {
+      console.log(formattedMessage);
+    }
+    
+    // Log to file
+    if (logStream) {
+      logStream.write(formattedMessage + os.EOL);
+    }
+    
+    // Send to renderer (but not full error objects)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const simplifiedMessage = typeof message === 'object' 
+        ? JSON.stringify(message) 
+        : message;
+      
+      mainWindow.webContents.send("log-event", simplifiedMessage);
+    }
+  }
+
+  info(message) {
+    this.log(message, 'INFO');
+  }
+
+  warn(message) {
+    this.log(message, 'WARN');
+  }
+
+  error(message, error) {
+    // Log the main message
+    this.log(message, 'ERROR');
+    
+    // If there's an error object, log its details too
+    if (error) {
+      if (error.stack) {
+        this.log(`Error Stack: ${error.stack}`, 'ERROR');
+      } else {
+        this.log(`Error Details: ${JSON.stringify(error)}`, 'ERROR');
+      }
+    }
+  }
+}
+
+const logger = new Logger();
+
+/**
+ * Create the main application window
+ */
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -38,41 +126,92 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false,
     },
+    // Add modern window features
+    titleBarStyle: 'hiddenInset',
+    backgroundColor: '#0f172a', // Match our dark theme background
+    show: false, // Don't show until ready
   });
 
+  // Create splash screen
+  const splash = new BrowserWindow({
+    width: 400,
+    height: 400,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    center: true,
+  });
+
+  splash.loadFile("static/splash.html");
   mainWindow.loadFile("index.html");
-  mainWindow.webContents.openDevTools(); // For debugging
+
+  // Show main window when it's ready, and close splash screen
+  mainWindow.once('ready-to-show', () => {
+    splash.destroy();
+    mainWindow.show();
+  });
+
+  // Open DevTools only in development
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools();
+  }
+  
+  // Handle window close
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
 }
 
-//app.whenReady().then(createWindow);
-
+/**
+ * Initialize application
+ */
 app.whenReady().then(async () => {
+  logger.info("Application starting...");
+  
+  // Create community instance
+  community = new SteamCommunity();
+  
+  // Initialize window
   createWindow();
 
-  // Validate all tokens on startup
+  // Validate tokens
   await validateAllStoredTokens();
 
-  // Then fetch accounts from Flask if we have a device token
+  // Fetch accounts if device token exists
   try {
-    const deviceToken = await keytar.getPassword(
-      SERVICE_NAME,
-      DEVICE_TOKEN_KEY
-    );
+    const deviceToken = await keytar.getPassword(SERVICE_NAME, DEVICE_TOKEN_KEY);
     if (deviceToken) {
       await fetchAndUpdateAccountsFromFlask(deviceToken);
     }
   } catch (err) {
-    logger(`Error fetching accounts on startup: ${err.message}`);
+    logger.error("Error fetching accounts on startup", err);
   }
 });
 
+// Quit when all windows are closed, except on macOS
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  }
+});
+
+/**
+ * Fetch and update accounts from Flask API
+ * @param {string} deviceToken - The device token for authentication
+ * @returns {Array} Updated accounts list
+ */
 async function fetchAndUpdateAccountsFromFlask(deviceToken) {
   try {
-    const serverUrl =
-      "https://cs-assets-oskarkohlenprath.pythonanywhere.com/api/desktop_steam_accounts";
+    const serverUrl = `${API_BASE_URL}/desktop_steam_accounts`;
     const resp = await axios.post(serverUrl, { device_token: deviceToken });
     const steamAccounts = resp.data.steam_accounts || [];
-    logger(`Flask returned ${steamAccounts.length} steam accounts.`);
+    logger.info(`Flask returned ${steamAccounts.length} steam accounts.`);
 
     // Load current accounts
     const existingAccounts = await loadAccountsJSON();
@@ -82,8 +221,7 @@ async function fetchAndUpdateAccountsFromFlask(deviceToken) {
     for (const flaskAccount of steamAccounts) {
       const steamId = flaskAccount.steam_id;
       const displayName = flaskAccount.persona_name || steamId;
-      const avatarUrl =
-        flaskAccount.avatar_url || "https://via.placeholder.com/64";
+      const avatarUrl = flaskAccount.avatar_url || "static/images/default-avatar.png";
 
       // Check if this account already exists
       const existingIdx = existingAccounts.findIndex(
@@ -114,52 +252,70 @@ async function fetchAndUpdateAccountsFromFlask(deviceToken) {
 
     return updatedAccounts;
   } catch (err) {
-    logger(`Error fetching accounts from Flask: ${err.message}`);
+    logger.error("Error fetching accounts from Flask", err);
     throw err;
   }
 }
 
+/**
+ * Handle IPC request to get saved accounts
+ */
 ipcMain.handle("get-saved-accounts", async () => {
-  // 1) Fetch all accounts from Keytar
+  // Fetch all accounts from Keytar
   const allAccounts = await getAllAccounts();
-
-  // 2) Filter out those that have no (or empty) refreshToken
-  const onlyWithToken = allAccounts.filter((acct) => {
-    return acct.refreshToken && acct.refreshToken.trim() !== "";
-  });
-
-  return onlyWithToken;
+  return allAccounts;
 });
 
+/**
+ * Load accounts from secure storage
+ * @returns {Array} List of stored accounts
+ */
 async function loadAccountsJSON() {
-  const existing = await keytar.getPassword(SERVICE_NAME, ACCOUNTS_KEY);
-  if (!existing) {
-    // No data stored yet
-    return [];
-  }
   try {
+    const existing = await keytar.getPassword(SERVICE_NAME, ACCOUNTS_KEY);
+    if (!existing) {
+      // No data stored yet
+      return [];
+    }
     return JSON.parse(existing);
   } catch (err) {
-    console.error("Error parsing stored accounts JSON:", err);
+    logger.error("Error parsing stored accounts JSON", err);
     return [];
   }
 }
 
+/**
+ * Save accounts to secure storage
+ * @param {Array} accounts - List of accounts to save
+ */
 async function saveAccountsJSON(accounts) {
-  const json = JSON.stringify(accounts);
-  await keytar.setPassword(SERVICE_NAME, ACCOUNTS_KEY, json);
+  try {
+    const json = JSON.stringify(accounts);
+    await keytar.setPassword(SERVICE_NAME, ACCOUNTS_KEY, json);
+  } catch (err) {
+    logger.error("Error saving accounts to storage", err);
+    throw err;
+  }
 }
 
+/**
+ * Get all stored accounts
+ * @returns {Array} List of all accounts
+ */
 async function getAllAccounts() {
-  // Reads the entire array from keytar
   return await loadAccountsJSON();
 }
 
+/**
+ * Save account data to storage
+ * @param {Object} accountData - Account data to save
+ */
 async function saveAccountData({
   steamId,
   displayName,
   refreshToken,
   isRegistered,
+  avatarUrl
 }) {
   try {
     const accounts = await loadAccountsJSON();
@@ -170,7 +326,7 @@ async function saveAccountData({
       const tokenSteamId = extractSteamIdFromToken(refreshToken);
 
       if (tokenSteamId && tokenSteamId !== steamId) {
-        logger(
+        logger.warn(
           `WARNING: Attempted to save a token for ${steamId} that belongs to ${tokenSteamId}`
         );
         // Token belongs to a different account - don't save it
@@ -183,14 +339,14 @@ async function saveAccountData({
       );
 
       if (existingWithToken) {
-        logger(
-          `WARNING: Token uniqueness violation detected. Token already exists for account ${
+        logger.warn(
+          `Token uniqueness violation detected. Token already exists for account ${
             existingWithToken.displayName || existingWithToken.steamId
           }`
         );
 
         // Remove the token from the other account
-        logger(
+        logger.info(
           `Removing duplicate token from account ${
             existingWithToken.displayName || existingWithToken.steamId
           }`
@@ -208,23 +364,25 @@ async function saveAccountData({
     // Now save/update the current account
     const idx = accounts.findIndex((a) => a.steamId === steamId);
     if (idx >= 0) {
-      // Update existing
-      accounts[idx].displayName = displayName;
-      accounts[idx].refreshToken = refreshToken;
+      // Update existing account
+      if (displayName) accounts[idx].displayName = displayName;
+      if (refreshToken !== undefined) accounts[idx].refreshToken = refreshToken;
+      if (avatarUrl) accounts[idx].avatarUrl = avatarUrl;
       accounts[idx].lastUsed = Date.now();
+      
       // Only update isRegistered if provided
       if (typeof isRegistered !== "undefined") {
         accounts[idx].isRegistered = isRegistered;
       }
     } else {
-      // Add new
+      // Add new account
       accounts.push({
         steamId,
-        displayName,
-        refreshToken,
+        displayName: displayName || steamId,
+        refreshToken: refreshToken || "",
+        avatarUrl: avatarUrl || "static/images/default-avatar.png",
         lastUsed: Date.now(),
-        isRegistered:
-          typeof isRegistered !== "undefined" ? isRegistered : false,
+        isRegistered: typeof isRegistered !== "undefined" ? isRegistered : false,
       });
     }
 
@@ -232,26 +390,24 @@ async function saveAccountData({
 
     // If this was a token update, send notification to the user
     if (refreshToken && refreshToken.trim() !== "") {
-      mainWindow?.webContents.send(
-        "login-warning",
-        `Refresh token updated for account ${displayName || steamId}`
-      );
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(
+          "login-warning",
+          `Refresh token updated for account ${displayName || steamId}`
+        );
+      }
     }
   } catch (err) {
-    console.error("Error saving account data to keytar:", err);
-    mainWindow?.webContents.send("storage-error", err.toString());
+    logger.error("Error saving account data", err);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("storage-error", "Failed to save account data");
+    }
   }
 }
 
-// ------------------------------------------------------------
-//   IPC handlers for Refresh-Token-based logins
-// ------------------------------------------------------------
-
-//ipcMain.handle('get-saved-accounts', async () => {
-//  return await getAllAccounts();
-//});
-
-// Updated refresh-token login handler
+/**
+ * Handle login with refresh token
+ */
 ipcMain.handle('login-with-refresh-token', async (event, steamId) => {
   try {
     const accounts = await getAllAccounts();
@@ -267,103 +423,124 @@ ipcMain.handle('login-with-refresh-token', async (event, steamId) => {
     // Log in with the token
     await initCSGO({ refreshToken: found.refreshToken });
     
-    // The post-login account validation happens in the loggedOn event
-    mainWindow.webContents.send('login-success');
+    // Update account's last used timestamp
+    await saveAccountData({
+      steamId,
+      displayName: found.displayName,
+      lastUsed: Date.now()
+    });
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('login-success');
+    }
   } catch (error) {
-    console.error('Login with refresh token failed:', error);
-    mainWindow.webContents.send('login-failed', error.toString());
+    logger.error('Login with refresh token failed', error);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('login-failed', "Login failed. Please try again.");
+    }
   }
 });
 
-
-
-
+/**
+ * Handle moving items from storage
+ */
 ipcMain.handle('move-items-from-storage', async (_event, payload) => {
   try {
-    await performMoves(payload);         // see next section
+    await performMoves(payload);
     return { success: true };
   } catch (err) {
-    logger(`move-items failed: ${err.message}`);
-    return { success: false, error: err.toString() };
+    logger.error("Move items operation failed", err);
+    return { success: false, error: "Failed to move items. Please try again." };
   }
 });
 
-
-
-
-// Listen for login credentials from the renderer (username & password)
+/**
+ * Handle login credentials from renderer
+ */
 ipcMain.on('login-credentials', async (event, credentials) => {
   try {
     await terminateSteamSession();
     await initCSGO(credentials);
-    mainWindow.webContents.send('login-success');
-  } catch (error) {
-    console.error('Login failed:', error);
-    mainWindow.webContents.send('login-failed', error.toString());
-  }
-});
-
-// Fetch all storage units (caskets)
-
-ipcMain.on("fetch-storage", async () => {
-  try {
-    const caskets = await fetchAllCaskets();
-    mainWindow.webContents.send("storage-items", caskets);
-    // Get the current Steam account id from the logged-in user.
-    const steamAccountId = user.steamID.getSteamID64();
-    // Now send the caskets to the Flask endpoint.
-    try {
-      const serverResponse = await sendStorageUnitsToServer(
-        caskets,
-        steamAccountId
-      );
-      logger(`Storage units sent to server: ${JSON.stringify(serverResponse)}`);
-    } catch (serverErr) {
-      logger(`Error sending storage units to server: ${serverErr.message}`);
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('login-success');
     }
   } catch (error) {
-    console.error("Error fetching storage units:", error);
-    mainWindow.webContents.send("storage-error", error.toString());
+    logger.error('Login failed', error);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('login-failed', "Login failed. Please check your credentials and try again.");
+    }
   }
 });
 
-// ---------------------------------------------------------------------
-// Configuration / Constants
-// ---------------------------------------------------------------------
-const MAX_INVENTORY_SIZE = 1000;
-const MAX_CASKET_SIZE = 1000;
-const INVENTORY_BUFFER = 0;
-const SAFE_INVENTORY_SIZE = MAX_INVENTORY_SIZE - INVENTORY_BUFFER;
+/**
+ * Handle fetch storage request
+ */
+ipcMain.on("fetch-storage", async () => {
+  try {
+    if (!user || !csgo || !csgo.haveGCSession) {
+      throw new Error("Not connected to Steam. Please log in first.");
+    }
+    
+    const caskets = await fetchAllCaskets();
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("storage-items", caskets);
+    }
+    
+    // Get the current Steam account id from the logged-in user
+    const steamAccountId = user.steamID.getSteamID64();
+    
+    // Send the caskets to the Flask endpoint
+    try {
+      const serverResponse = await sendStorageUnitsToServer(caskets, steamAccountId);
+      logger.info(`Storage units sent to server: ${JSON.stringify(serverResponse)}`);
+    } catch (serverErr) {
+      logger.error("Error sending storage units to server", serverErr);
+      // We don't need to notify the user about this server-side issue
+    }
+  } catch (error) {
+    logger.error("Error fetching storage units", error);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("storage-error", "Failed to fetch storage units. Please try again.");
+    }
+  }
+});
 
-// -------------------------------------------
-// Deep-Check-Funktion (Chunkbasiert)
-// -------------------------------------------
+/**
+ * Handle casket deep check request
+ */
 ipcMain.on("casket-deep-check", async (event, casketId) => {
   const startTime = Date.now();
 
   try {
-    logger(`Starting deep-check on storage unit ${casketId}...`);
+    logger.info(`Starting deep-check on storage unit ${casketId}...`);
+
+    if (!user || !csgo || !csgo.haveGCSession) {
+      throw new Error("Not connected to Steam. Please log in first.");
+    }
 
     // 1) Fetch old local web inventory
-    logger("Fetching old web inventory...");
+    logger.info("Fetching old web inventory...");
     const oldInventory = await getWebInventory();
     const oldInventoryCount = oldInventory.length;
-    logger(`Got old web inventory: ${oldInventoryCount} items.`);
+    logger.info(`Got old web inventory: ${oldInventoryCount} items.`);
+
+    // Check inventory space
+    if (oldInventoryCount > SAFE_INVENTORY_SIZE) {
+      throw new Error("Your inventory is too full to perform a deep check. Please make some space first.");
+    }
 
     // Potential "space" items (tradable, CS:GO)
     const candidateSpaceItems = oldInventory
       .filter((it) => it.tradable && it.appid === 730)
       .map((it) => it.assetid);
-    logger(
-      `Found ${candidateSpaceItems.length} tradable CS:GO items in old inventory.`
-    );
+    logger.info(`Found ${candidateSpaceItems.length} tradable CS:GO items in old inventory.`);
 
     // 2) Get casket contents
-    logger(`Getting storage unit ${casketId} contents...`);
+    logger.info(`Getting storage unit ${casketId} contents...`);
     const casketItems = await fetchCasketContents(casketId);
-    logger(`Storage unit ${casketId} has ${casketItems.length} item(s).`);
-
-    logger(casketItems);
+    logger.info(`Storage unit ${casketId} has ${casketItems.length} item(s).`);
 
     const casketCount = casketItems.length;
     const originalCasketIds = casketItems.map((it) => it.id);
@@ -384,11 +561,14 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
         100,
         Math.round((currentMovement / totalMovements) * 100)
       );
-      mainWindow.webContents.send("deep-check-progress", {
-        progress,
-        currentMovement,
-        totalMovements,
-      });
+      
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("deep-check-progress", {
+          progress,
+          currentMovement,
+          totalMovements,
+        });
+      }
     }
 
     // Copy casket items for chunk-based processing
@@ -415,13 +595,9 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
           if (currentCasketSize >= MAX_CASKET_SIZE) {
             if (chunkSize > 1) {
               chunkSize = Math.max(1, chunkSize - 1);
-              logger(
-                `Chunk too big. Reducing chunk size to ${chunkSize} and retrying...`
-              );
+              logger.info(`Chunk too big. Reducing chunk size to ${chunkSize} and retrying...`);
             } else {
-              throw new Error(
-                "Weder Inventar noch Casket haben genug Platz. Abbruch."
-              );
+              throw new Error("Not enough space in inventory or storage unit. Operation aborted.");
             }
             break;
           }
@@ -432,19 +608,13 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
           if (!itemToMove) {
             if (chunkSize > 1) {
               chunkSize = Math.max(1, chunkSize - 1);
-              logger(
-                `No more space-items. Reducing chunk size to ${chunkSize} and retrying...`
-              );
+              logger.info(`No more space-items. Reducing chunk size to ${chunkSize} and retrying...`);
             } else {
-              throw new Error(
-                "Keine Space-Items mehr und Inventar ist zu voll. Abbruch."
-              );
+              throw new Error("Not enough movable items in inventory. Operation aborted.");
             }
             break;
           }
-          logger(
-            `Moving space-item ${itemToMove} -> casket ${casketId} to free a slot.`
-          );
+          logger.info(`Moving space-item ${itemToMove} -> casket ${casketId} to free a slot.`);
           csgo.addToCasket(casketId, itemToMove);
           await delay(DELAY_MS);
 
@@ -466,7 +636,7 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
 
       // 2) Remove items from casket -> inventory
       for (const gcItem of batch) {
-        logger(`Removing item ${gcItem.id} from storage unit ${casketId}...`);
+        logger.info(`Removing item ${gcItem.id} from storage unit ${casketId}...`);
         csgo.removeFromCasket(casketId, gcItem.id);
         await delay(DELAY_MS);
 
@@ -476,11 +646,9 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
       }
 
       // 3) Refresh local web inventory
-      logger(
-        `Fetching new web inventory after removing ${batch.length} item(s)...`
-      );
+      logger.info(`Fetching new web inventory after removing ${batch.length} item(s)...`);
       const newInventory = await getWebInventory();
-      logger(`Got new web inventory: ${newInventory.length} items.`);
+      logger.info(`Got new web inventory: ${newInventory.length} items.`);
 
       // 3.1) We want to detect items that weren't in oldInventory
       const oldIdsSet = new Set(oldInventory.map((it) => it.assetid));
@@ -489,7 +657,6 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
       );
 
       // 3.2) Transform each newly added item to ensure we pass relevant fields
-      // like assetid, classid, instanceid, market_hash_name, icon_url, etc.
       const mappedNewlyAdded = rawNewlyAdded.map((item) => ({
         assetid: item.assetid,
         classid: item.classid || "",
@@ -501,12 +668,12 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
       }));
 
       newlyAddedItems.push(...mappedNewlyAdded);
-      logger(`Found ${mappedNewlyAdded.length} new item(s) in inventory.`);
+      logger.info(`Found ${mappedNewlyAdded.length} new item(s) in inventory.`);
       updateProgress(1);
 
       // 4) Put items back into casket
       for (const gcItem of batch) {
-        logger(`Putting item ${gcItem.id} back to casket ${casketId}...`);
+        logger.info(`Putting item ${gcItem.id} back to casket ${casketId}...`);
         csgo.addToCasket(casketId, gcItem.id);
         await delay(DELAY_MS);
 
@@ -520,24 +687,17 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
 
     // Move space items back
     if (temporarilyMovedIntoCasket.length > 0) {
-      logger(
-        `Moving ${temporarilyMovedIntoCasket.length} space-item(s) back to main inventory...`
-      );
+      logger.info(`Moving ${temporarilyMovedIntoCasket.length} space-item(s) back to main inventory...`);
     }
+    
     const returnBatchSize = 200;
-    for (
-      let i = 0;
-      i < temporarilyMovedIntoCasket.length;
-      i += returnBatchSize
-    ) {
+    for (let i = 0; i < temporarilyMovedIntoCasket.length; i += returnBatchSize) {
       const batch = temporarilyMovedIntoCasket.slice(i, i + returnBatchSize);
       for (const itemId of batch) {
         if (currentInventorySize >= SAFE_INVENTORY_SIZE) {
-          throw new Error(
-            "Inventory unexpectedly full while returning space-items."
-          );
+          throw new Error("Inventory unexpectedly full while returning space-items.");
         }
-        logger(`Returning space item ${itemId} to main inventory...`);
+        logger.info(`Returning space item ${itemId} to main inventory...`);
         csgo.removeFromCasket(casketId, itemId);
         await delay(DELAY_MS);
 
@@ -549,9 +709,9 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
 
     // Finished
     const totalMs = Date.now() - startTime;
-    logger(`Deep-check complete. Total time: ${totalMs} ms.`);
+    logger.info(`Deep-check complete. Total time: ${totalMs} ms.`);
 
-    // Finally, send these newlyAddedItems to your Flask endpoint
+    // Send newly discovered items to Flask
     const steamAccountId = user.steamID.getSteamID64();
     try {
       const serverResponse = await sendNewItemsToServer(
@@ -559,95 +719,110 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
         newlyAddedItems,
         steamAccountId
       );
-      logger(`Server response: ${JSON.stringify(serverResponse)}`);
+      logger.info(`Server response for new items: ${JSON.stringify(serverResponse)}`);
     } catch (serverErr) {
-      logger(`Error sending new items to server: ${serverErr.message}`);
+      logger.error("Error sending new items to server", serverErr);
       // We'll still proceed with reporting the deep-check to the UI
     }
 
-    mainWindow.webContents.send("deep-check-result", {
-      success: true,
-      newlyAddedItems,
-      totalTimeMs: totalMs,
-      estimatedSeconds: Math.round(totalMs / 1000),
-    });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("deep-check-result", {
+        success: true,
+        newlyAddedItems,
+        totalTimeMs: totalMs,
+        estimatedSeconds: Math.round(totalMs / 1000),
+      });
+    }
   } catch (error) {
-    console.error("Error in deep-check operation:", error);
-    logger(`Error: ${error.message || error}`);
+    logger.error("Error in deep-check operation", error);
+    
     const totalMs = Date.now() - startTime;
-    logger(`Deep-check ended with error. Time: ${totalMs} ms.`);
+    logger.info(`Deep-check ended with error. Time: ${totalMs} ms.`);
 
-    mainWindow.webContents.send("deep-check-result", {
-      success: false,
-      error: error.toString(),
-      totalTimeMs: totalMs,
-    });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("deep-check-result", {
+        success: false,
+        error: error.message || "Unknown error during deep check",
+        totalTimeMs: totalMs,
+      });
+    }
   }
 });
 
-// ---------------------------------------------------------------------
-// Additional Functions
-// ---------------------------------------------------------------------
-
+/**
+ * Send newly discovered items to server
+ * @param {string} casketId - Storage unit ID
+ * @param {Array} newlyAddedItems - Items to send
+ * @param {string} steamAccountId - Steam account ID
+ * @returns {Object} Server response
+ */
 async function sendNewItemsToServer(casketId, newlyAddedItems, steamAccountId) {
   try {
-    const serverUrl =
-      "http://cs-assets-oskarkohlenprath.pythonanywhere.com/api/register_storage_items";
+    const serverUrl = `${API_BASE_URL}/register_storage_items`;
     const payload = {
       steam_account_id: steamAccountId,
       storage_unit_id: casketId,
       items: newlyAddedItems,
     };
+    
     const resp = await axios.post(serverUrl, payload, {
       withCredentials: true,
     });
+    
     if (!resp.data.success) {
       throw new Error(resp.data.error || "Unknown error from server");
     }
-    logger(`Server response: ${JSON.stringify(resp.data)}`);
+    
     return resp.data;
   } catch (err) {
-    logger(`Error sending new items to server: ${err.message}`);
+    logger.error(`Error sending new items to server: ${err.message}`);
     throw err;
   }
 }
 
-// ---------------------------------------------------------------------
-// HELPER METHODS
-// ---------------------------------------------------------------------
-
+/**
+ * Send storage units to server
+ * @param {Array} caskets - Storage units to send
+ * @param {string} steamAccountId - Steam account ID
+ * @returns {Object} Server response
+ */
 async function sendStorageUnitsToServer(caskets, steamAccountId) {
   try {
-    const serverUrl =
-      "http://cs-assets-oskarkohlenprath.pythonanywhere.com/api/register_storage_units";
-    // Prepare payload: include steam_account_id and an array of storage unit objects.
+    const serverUrl = `${API_BASE_URL}/register_storage_units`;
+    
+    // Prepare payload with steam_account_id and storage units
     const payload = {
       steam_account_id: steamAccountId,
       storage_units: caskets.map((casket) => ({
         storage_unit_id: casket.casketId,
         name: casket.casketName,
-        // Optionally include other fields such as itemCount if needed.
       })),
     };
+    
     const resp = await axios.post(serverUrl, payload, {
       withCredentials: true,
     });
+    
     if (!resp.data.success) {
       throw new Error(resp.data.error || "Unknown error from server");
     }
-    logger(`Storage units registered: ${JSON.stringify(resp.data)}`);
+    
     return resp.data;
   } catch (err) {
-    logger(`Error sending storage units to server: ${err.message}`);
+    logger.error(`Error sending storage units to server: ${err.message}`);
     throw err;
   }
 }
 
-
+/**
+ * Initialize CS:GO connection
+ * @param {Object} credentials - Login credentials
+ * @returns {Promise} Resolves when connected
+ */
 async function initCSGO(credentials) {
   return new Promise((resolve, reject) => {
     if (user && csgo && csgo.haveGCSession) {
-      logger('Already logged in with an active GC session.');
+      logger.info('Already logged in with an active GC session.');
       return resolve();
     }
 
@@ -661,18 +836,18 @@ async function initCSGO(credentials) {
     // Simple token capture without immediate saving
     user.on("refreshToken", (token) => {
       if (!token) {
-        logger("Got an empty refresh token from steam-user");
+        logger.warn("Got an empty refresh token from steam-user");
         return;
       }
       
-      logger(`Received new refresh token from Steam: ${token}`);
-      lastReceivedToken = token; // Just store it for later use
+      logger.info(`Received new refresh token from Steam`);
+      lastReceivedToken = token; // Store it for later use
     });
 
     // On successful login, handle token saving
     user.on("loggedOn", async () => {
       const steamId = user.steamID.getSteamID64();
-      logger(`Logged in as ${steamId}`);
+      logger.info(`Logged in as ${steamId}`);
       
       user.setPersona(SteamUser.EPersonaState.Online);
       user.gamesPlayed([730]);
@@ -681,7 +856,7 @@ async function initCSGO(credentials) {
       let finalToken = lastReceivedToken;
       if (!finalToken && credentials.refreshToken) {
         finalToken = credentials.refreshToken;
-        logger(`Using token from credentials: ${finalToken}`);
+        logger.info(`Using token from credentials`);
       }
 
       // Handle device token
@@ -689,9 +864,9 @@ async function initCSGO(credentials) {
       if (!dt) {
         try {
           dt = await ensureDeviceToken(steamId);
-          logger(`Device token is confirmed: ${dt}`);
+          logger.info(`Device token is confirmed`);
         } catch (err) {
-          logger('Error ensuring device token: ' + err);
+          logger.error('Error ensuring device token', err);
           return;
         }
       }
@@ -709,33 +884,31 @@ async function initCSGO(credentials) {
               steamId,
               displayName: loggedInAccount.displayName,
               refreshToken: finalToken,
-              isRegistered: true
+              isRegistered: true,
+              avatarUrl: loggedInAccount.avatarUrl
             });
             
             // Also check if this token is duplicated in other accounts and remove it
             await removeTokenFromOtherAccounts(finalToken, steamId);
           }
 
-          mainWindow.webContents.send('account-details', {
-            steamId,
-            displayName: loggedInAccount.displayName,
-            avatarUrl: loggedInAccount.avatarUrl || 'https://via.placeholder.com/64'
-          });
-
-          // ── NEW: ask Flask what we still need in live inventory ─────────────
-          try {
-          await checkInventoryNeeds(steamId);
-          } catch (err) {
-          logger(`inventory-needs check failed: ${err.message}`);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('account-details', {
+              steamId,
+              displayName: loggedInAccount.displayName,
+              avatarUrl: loggedInAccount.avatarUrl || 'static/images/default-avatar.png'
+            });
           }
-          
 
-
-
-
+          // Ask Flask what we still need in live inventory
+          try {
+            await checkInventoryNeeds(steamId);
+          } catch (err) {
+            logger.error(`Inventory-needs check failed`, err);
+          }
         } else {
           // Not a registered account
-          logger(`Account ${steamId} not found in Flask accounts list`);
+          logger.warn(`Account ${steamId} not found in Flask accounts list`);
           
           if (finalToken) {
             await saveAccountData({
@@ -749,17 +922,21 @@ async function initCSGO(credentials) {
             await removeTokenFromOtherAccounts(finalToken, steamId);
           }
 
-          mainWindow.webContents.send('account-details', {
-            steamId,
-            displayName: credentials.username || steamId,
-            avatarUrl: 'https://via.placeholder.com/64'
-          });
-          
-          mainWindow.webContents.send('login-warning', 
-            `This account is not linked to your cs-assets.com profile.`);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('account-details', {
+              steamId,
+              displayName: credentials.username || steamId,
+              avatarUrl: 'static/images/default-avatar.png'
+            });
+            
+            mainWindow.webContents.send('account-not-registered', {
+              steamId,
+              displayName: credentials.username || steamId
+            });
+          }
         }
       } catch (err) {
-        logger(`Error during account processing: ${err.message}`);
+        logger.error(`Error during account processing`, err);
         
         // Even if Flask fails, save the token
         if (finalToken) {
@@ -774,18 +951,19 @@ async function initCSGO(credentials) {
       }
     });
 
-    // Other event handlers remain the same
+    // Web session handling
     user.on("webSession", (sessionID, cookies) => {
-      logger(`Obtained web session: ${sessionID}`);
+      logger.info(`Obtained web session: ${sessionID}`);
       community.setCookies(cookies);
     });
 
+    // Steam Guard handling
     user.on("steamGuard", (domain, callback) => {
-      logger(`SteamGuard code required for domain: ${domain}`);
-      if (mainWindow) {
+      logger.info(`SteamGuard code required for domain: ${domain}`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("steamGuard-required", domain);
         ipcMain.once("steamGuard-code", (_event, code) => {
-          logger(`Received SteamGuard code from renderer: ${code}`);
+          logger.info(`Received SteamGuard code from renderer`);
           callback(code);
         });
       } else {
@@ -793,18 +971,20 @@ async function initCSGO(credentials) {
       }
     });
 
+    // Error handling
     user.on("error", (err) => {
-      logger(`Steam user error: ${err}`);
+      logger.error(`Steam user error`, err);
       reject(err);
     });
 
+    // CS:GO connection events
     csgo.on("connectedToGC", () => {
-      logger("Connected to GC.");
+      logger.info("Connected to GC.");
       resolve();
     });
 
     csgo.on("disconnectedFromGC", (reason) => {
-      logger(`Disconnected from GC: ${reason}`);
+      logger.warn(`Disconnected from GC: ${reason}`);
     });
 
     // Login with credentials
@@ -821,6 +1001,11 @@ async function initCSGO(credentials) {
   });
 }
 
+/**
+ * Remove token from other accounts
+ * @param {string} token - Token to remove
+ * @param {string} exceptSteamId - Steam ID to exclude
+ */
 async function removeTokenFromOtherAccounts(token, exceptSteamId) {
   if (!token) return;
   
@@ -830,7 +1015,7 @@ async function removeTokenFromOtherAccounts(token, exceptSteamId) {
     
     for (const account of accounts) {
       if (account.steamId !== exceptSteamId && account.refreshToken === token) {
-        logger(`Removing duplicate token from account ${account.displayName || account.steamId}`);
+        logger.info(`Removing duplicate token from account ${account.displayName || account.steamId}`);
         account.refreshToken = '';
         hasChanges = true;
       }
@@ -840,13 +1025,16 @@ async function removeTokenFromOtherAccounts(token, exceptSteamId) {
       await saveAccountsJSON(accounts);
     }
   } catch (err) {
-    logger(`Error removing duplicate tokens: ${err.message}`);
+    logger.error(`Error removing duplicate tokens`, err);
   }
 }
 
-
+/**
+ * Get web inventory
+ * @returns {Promise<Array>} Inventory items
+ */
 async function getWebInventory() {
-  logger("Fetching web inventory...");
+  logger.info("Fetching web inventory...");
   return new Promise((resolve, reject) => {
     community.getUserInventoryContents(
       user.steamID,
@@ -855,38 +1043,51 @@ async function getWebInventory() {
       false,
       (err, inventory) => {
         if (err) {
-          logger(`Error fetching inventory: ${err}`);
+          logger.error(`Error fetching inventory`, err);
           return reject(err);
         }
-        logger(`Inventory fetched. Count = ${inventory.length}`);
+        logger.info(`Inventory fetched. Count = ${inventory.length}`);
         resolve(inventory);
       }
     );
   });
 }
 
+/**
+ * Fetch all storage units (caskets)
+ * @returns {Promise<Array>} List of storage units
+ */
 async function fetchAllCaskets() {
   return new Promise((resolve, reject) => {
     setTimeout(() => {
-      if (!csgo.inventory || csgo.inventory.length === 0) {
+      if (!csgo || !csgo.inventory || csgo.inventory.length === 0) {
         return reject(new Error("No items found in inventory."));
       }
+      
       const storageUnits = csgo.inventory.filter(
         (item) => typeof item.casket_contained_item_count !== "undefined"
       );
+      
       if (storageUnits.length === 0) {
         return reject(new Error("No storage units found."));
       }
+      
       const casketArray = storageUnits.map((unit) => ({
         casketId: unit.id,
         casketName: unit.custom_name || "Unnamed Storage",
         itemCount: unit.casket_contained_item_count || 0,
       }));
+      
       resolve(casketArray);
     }, 2000);
   });
 }
 
+/**
+ * Fetch storage unit contents
+ * @param {string} casketId - Storage unit ID
+ * @returns {Promise<Array>} List of items in storage unit
+ */
 async function fetchCasketContents(casketId) {
   return new Promise((resolve, reject) => {
     csgo.getCasketContents(casketId, (err, items) => {
@@ -896,132 +1097,20 @@ async function fetchCasketContents(casketId) {
   });
 }
 
-async function waitForOriginalItemsRemoved(
-  casketId,
-  originalIds,
-  retries = 10
-) {
-  for (let i = 0; i < retries; i++) {
-    const contents = await fetchCasketContents(casketId);
-
-    const stillRemaining = contents.filter((cItem) =>
-      originalIds.includes(cItem.id)
-    );
-    if (stillRemaining.length === 0) {
-      return;
-    }
-    await delay(DELAY_MS);
-  }
-  throw new Error("Some original items did not get removed in time.");
-}
-
-function logger(msg) {
-  console.log("[LOG]", msg);
-  if (mainWindow) {
-    mainWindow.webContents.send("log-event", msg);
-  }
-}
-
+/**
+ * Delay execution
+ * @param {number} ms - Milliseconds to delay
+ * @returns {Promise} Resolves after delay
+ */
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function updateAccountAvatar(steamId, avatarUrl) {
-  // We'll load the existing accounts, find the one with steamId, then store avatarUrl there
-  const accounts = await loadAccountsJSON();
-  const idx = accounts.findIndex((a) => a.steamId === steamId);
-  if (idx >= 0) {
-    accounts[idx].avatarUrl = avatarUrl;
-    accounts[idx].lastUsed = Date.now(); // optional, so it sorts top
-    await saveAccountsJSON(accounts);
-  }
-}
-
-async function ensureDeviceToken(steamId) {
-  // 1) Check if Keytar already has a device token
-  const existingToken = await keytar.getPassword(
-    SERVICE_NAME,
-    DEVICE_TOKEN_KEY
-  );
-  if (existingToken) {
-    logger("Device token found in Keytar. No 2FA needed.");
-    return existingToken;
-  }
-
-  logger("No device token in Keytar. Initiating 2FA flow via Flask...");
-
-  // 2) Make device_token_request
-  try {
-    // Adjust the URL to your actual endpoint
-    await axios.post(
-      "https://cs-assets-oskarkohlenprath.pythonanywhere.com/api/device_token_request",
-      {
-        steam_id: steamId,
-      }
-    );
-
-    // 3) Prompt user for the 2FA code from their email
-    // (Simplest approach is to ask the code from the renderer via an IPC call,
-    // or you might do a quick "prompt" in renderer.)
-    // For demonstration, we'll do a placeholder:
-    const twoFaCode = await promptUserFor2FACodeInRenderer();
-    // ^ you'll define how you pass that code from front-end.
-    // Possibly do an `ipcMain.handle('device-token-2fa-code', ...)`
-
-    // 4) device_token_confirm
-    const confirmResp = await axios.post(
-      "https://cs-assets-oskarkohlenprath.pythonanywhere.com/api/device_token_confirm",
-      {
-        steam_id: steamId,
-        code: twoFaCode,
-      }
-    );
-
-    if (!confirmResp.data || !confirmResp.data.device_token) {
-      throw new Error("Flask returned no device_token");
-    }
-    const newToken = confirmResp.data.device_token;
-    logger("Device token obtained from Flask: " + newToken);
-
-    // 5) Store in Keytar
-    await keytar.setPassword(SERVICE_NAME, DEVICE_TOKEN_KEY, newToken);
-    return newToken;
-  } catch (err) {
-    if (err.response) {
-      // err.response.status is the numeric status code (e.g. 400, 404)
-      // err.response.data should contain the JSON from Flask (e.g. { "error": "No steam_account for that steam_id" })
-      logger(
-        `Error in ensureDeviceToken flow: Status ${
-          err.response.status
-        } - ${JSON.stringify(err.response.data)}`
-      );
-    } else {
-      // If we never got a response from the server, err.response is undefined.
-      logger("Error in ensureDeviceToken flow: " + err.message);
-    }
-    throw err; // so that higher-level code knows it failed
-  }
-}
-
-ipcMain.on("2fa-code-submitted", (event, code) => {
-  // We'll store the code in a variable? or resolve a promise?
-  // We can store it in a Map keyed by event.frameId if multi-requests
-  // Or do something simpler with a one-time `once`
-});
-
-// We'll define the prompt function:
-async function promptUserFor2FACodeInRenderer() {
-  return new Promise((resolve) => {
-    // Listen once for the code
-    ipcMain.once("2fa-code-submitted", (event, code) => {
-      resolve(code);
-    });
-    // Ask renderer to open a modal or prompt:
-    mainWindow.webContents.send("please-enter-2fa");
-    console.log("send to renderer");
-  });
-}
-
+/**
+ * Extract Steam ID from token
+ * @param {string} token - Refresh token
+ * @returns {string|null} Steam ID or null
+ */
 function extractSteamIdFromToken(token) {
   if (!token) return null;
   
@@ -1029,16 +1118,18 @@ function extractSteamIdFromToken(token) {
     const decoded = jwt_decode(token);
     return decoded.sub || null;
   } catch (err) {
+    logger.error("Error decoding token", err);
     return null;
   }
 }
 
-
-
+/**
+ * Terminate Steam session
+ */
 async function terminateSteamSession() {
   if (!user) return;
   
-  logger('Terminating existing Steam session...');
+  logger.info('Terminating existing Steam session...');
   
   try {
     // Stop playing games
@@ -1056,9 +1147,9 @@ async function terminateSteamSession() {
     
     lastReceivedToken = null; // Reset the token cache
     
-    logger('Session terminated successfully');
+    logger.info('Session terminated successfully');
   } catch (err) {
-    logger(`Error in session termination: ${err.message}`);
+    logger.error(`Error in session termination`, err);
     
     // Force new instances
     user = new SteamUser();
@@ -1066,16 +1157,11 @@ async function terminateSteamSession() {
   }
 }
 
-// Simplified token extraction function
-
-
-
-
-
-
-
+/**
+ * Validate all stored tokens
+ */
 async function validateAllStoredTokens() {
-  logger("Validating all stored refresh tokens...");
+  logger.info("Validating all stored refresh tokens...");
 
   try {
     const accounts = await getAllAccounts();
@@ -1095,7 +1181,7 @@ async function validateAllStoredTokens() {
       // Check if we've seen this token already
       if (seenTokens.has(token)) {
         const firstAccountId = seenTokens.get(token);
-        logger(
+        logger.warn(
           `Duplicate token detected: accounts ${firstAccountId} and ${account.steamId} have the same token`
         );
 
@@ -1109,21 +1195,21 @@ async function validateAllStoredTokens() {
             const firstAccount = accounts.find(
               (a) => a.steamId === firstAccountId
             );
-            logger(
+            logger.info(
               `Token belongs to ${account.steamId}, clearing from ${firstAccountId}`
             );
             firstAccount.refreshToken = "";
             hasChanges = true;
           } else if (tokenSteamId === firstAccountId) {
             // Clear token from current account
-            logger(
+            logger.info(
               `Token belongs to ${firstAccountId}, clearing from ${account.steamId}`
             );
             account.refreshToken = "";
             hasChanges = true;
           } else {
             // Token doesn't belong to either account
-            logger(
+            logger.warn(
               `Token doesn't belong to either account (${firstAccountId} or ${account.steamId}), belongs to ${tokenSteamId}`
             );
             // Clear from both
@@ -1136,7 +1222,7 @@ async function validateAllStoredTokens() {
           }
         } else {
           // Can't decode - clear from the second account as a precaution
-          logger(
+          logger.warn(
             `Can't decode token, clearing from second account ${account.steamId}`
           );
           account.refreshToken = "";
@@ -1149,7 +1235,7 @@ async function validateAllStoredTokens() {
         // While we're at it, validate the token belongs to this account
         const tokenSteamId = extractSteamIdFromToken(token);
         if (tokenSteamId && tokenSteamId !== account.steamId) {
-          logger(
+          logger.warn(
             `Token for account ${account.steamId} actually belongs to ${tokenSteamId}, clearing`
           );
           account.refreshToken = "";
@@ -1160,71 +1246,135 @@ async function validateAllStoredTokens() {
 
     // Save changes if needed
     if (hasChanges) {
-      logger(
-        "Token validation found and fixed issues, saving updated accounts"
-      );
+      logger.info("Token validation found and fixed issues, saving updated accounts");
       await saveAccountsJSON(accounts);
     } else {
-      logger("Token validation complete, no issues found");
+      logger.info("Token validation complete, no issues found");
     }
   } catch (err) {
-    logger(`Error validating tokens: ${err.message}`);
+    logger.error(`Error validating tokens`, err);
   }
 }
 
+/**
+ * Ensure device token exists
+ * @param {string} steamId - Steam ID
+ * @returns {Promise<string>} Device token
+ */
+async function ensureDeviceToken(steamId) {
+  // 1) Check if Keytar already has a device token
+  const existingToken = await keytar.getPassword(
+    SERVICE_NAME,
+    DEVICE_TOKEN_KEY
+  );
+  
+  if (existingToken) {
+    logger.info("Device token found in Keytar. No 2FA needed.");
+    return existingToken;
+  }
 
+  logger.info("No device token in Keytar. Initiating 2FA flow via Flask...");
 
+  // 2) Make device_token_request
+  try {
+    // Adjust the URL to your actual endpoint
+    await axios.post(
+      `${API_BASE_URL}/device_token_request`,
+      {
+        steam_id: steamId,
+      }
+    );
 
+    // 3) Prompt user for the 2FA code from their email
+    const twoFaCode = await promptUserFor2FACodeInRenderer();
 
+    // 4) device_token_confirm
+    const confirmResp = await axios.post(
+      `${API_BASE_URL}/device_token_confirm`,
+      {
+        steam_id: steamId,
+        code: twoFaCode,
+      }
+    );
+
+    if (!confirmResp.data || !confirmResp.data.device_token) {
+      throw new Error("Flask returned no device_token");
+    }
+    
+    const newToken = confirmResp.data.device_token;
+    logger.info("Device token obtained from Flask");
+
+    // 5) Store in Keytar
+    await keytar.setPassword(SERVICE_NAME, DEVICE_TOKEN_KEY, newToken);
+    return newToken;
+  } catch (err) {
+    if (err.response) {
+      logger.error(
+        `Error in ensureDeviceToken flow: Status ${err.response.status}`,
+        err.response.data
+      );
+    } else {
+      logger.error("Error in ensureDeviceToken flow", err);
+    }
+    throw err;
+  }
+}
 
 /**
- * Call the Flask /api/inventory_needs/<steam_id> endpoint.
- * If the response contains missing items, notify renderer so it can
- * show a modal.  The actual move operation is started from renderer.
+ * Prompt user for 2FA code
+ * @returns {Promise<string>} 2FA code
+ */
+async function promptUserFor2FACodeInRenderer() {
+  return new Promise((resolve) => {
+    // Listen once for the code
+    ipcMain.once("2fa-code-submitted", (event, code) => {
+      resolve(code);
+    });
+    
+    // Ask renderer to open a modal or prompt
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("please-enter-2fa");
+      logger.info("2FA prompt sent to renderer");
+    }
+  });
+}
+
+/**
+ * Check inventory needs from Flask
+ * @param {string} steamId - Steam ID
  */
 async function checkInventoryNeeds(steamId) {
+  logger.info("Checking inventory needs from API");
 
-  console.log("running the api call to inventory needs")
+  const url = `${API_BASE_URL}/inventory_needs/${steamId}`;
 
-  const url =
-    `https://cs-assets-oskarkohlenprath.pythonanywhere.com/api/inventory_needs/${steamId}`;
+  try {
+    const { data } = await axios.get(url, { withCredentials: true });
 
+    if (!data.success) {
+      throw new Error(data.error || 'Unknown error');
+    }
 
-  console.log(url)
+    const needsSomething =
+      data.needed && data.needed.some(n => n.missing > 0 && n.storage_assetids.length);
 
-
-  const { data } = await axios.get(url, { withCredentials: true });
-
-
-  console.log(url)
-
-
-  if (!data.success) {
-    throw new Error(data.error || 'unknown error');
-  }
-
-  const needsSomething =
-    data.needed && data.needed.some(n => n.missing > 0 && n.storage_assetids.length);
-
-  if (needsSomething) {
-    mainWindow.webContents.send('inventory-needs', data);
+    if (needsSomething) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('inventory-needs', data);
+      }
+    }
+  } catch (err) {
+    logger.error("Failed to check inventory needs", err);
+    throw err;
   }
 }
 
-
-
-
 /**
- * payload = { locked_assetids, needed }   (exactly what Flask sent)
- * Strategy:
- *   – loop over needed[]
- *   – for each storage_assetid: locate its casket, pull it out
- *   – if inventory would overflow: push a not-locked item to ANY casket
- * You already have helpers: fetchAllCaskets, fetchCasketContents,
- * csgo.addToCasket / removeFromCasket.  Re-use them.
+ * Perform item moves from storage to inventory
+ * @param {Object} payload - Move payload
  */
 async function performMoves({ locked_assetids, needed }) {
-  logger('Starting automatic inventory-balancing…');
+  logger.info('Starting automatic inventory-balancing…');
 
   // 1.  Make a quick inventory + storage snapshot
   const webInv = await getWebInventory();
@@ -1233,13 +1383,16 @@ async function performMoves({ locked_assetids, needed }) {
   // 2.  Flatten all asset-ids we must bring into inventory
   const bringIn = needed.flatMap(n => n.storage_assetids.slice(0, n.missing));
 
-  if (bringIn.length === 0) return;          // nothing to do
+  if (bringIn.length === 0) {
+    logger.info("No items need to be moved");
+    return;
+  }
 
   // 3.  Make room if necessary
   const projected = invSize + bringIn.length;
   if (projected > SAFE_INVENTORY_SIZE) {
     const overflow = projected - SAFE_INVENTORY_SIZE;
-    logger(`Need to park ${overflow} item(s) to storage…`);
+    logger.info(`Need to park ${overflow} item(s) to storage…`);
 
     const victims = webInv
       .filter(it => !locked_assetids.includes(it.assetid))
@@ -1269,7 +1422,7 @@ async function performMoves({ locked_assetids, needed }) {
 
   // 4.  Pull requested items out of their caskets
   for (const aid of bringIn) {
-    // naïve: try every casket until we see it
+    // try every casket until we see it
     const caskets = await fetchAllCaskets();
     let found = false;
 
@@ -1283,9 +1436,18 @@ async function performMoves({ locked_assetids, needed }) {
         break;
       }
     }
-    if (!found) logger(`WARN: could not find assetid ${aid} in any casket`);
+    
+    if (!found) {
+      logger.warn(`Could not find assetid ${aid} in any casket`);
+    }
   }
 
-  logger('Automatic moves finished.');
+  logger.info('Automatic moves finished successfully');
 }
 
+// Handle app quit
+app.on('quit', () => {
+  if (logStream) {
+    logStream.end();
+  }
+});

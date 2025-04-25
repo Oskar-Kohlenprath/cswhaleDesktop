@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onDeepCheckResult: (callback) => ipcRenderer.on('deep-check-result', (event, data) => callback(data)),
   onDeepCheckProgress: (callback) => ipcRenderer.on('deep-check-progress', (event, data) => callback(data)),
   onStorageError: (callback) => ipcRenderer.on('storage-error', (event, error) => callback(event, error)),
-  onLogEvent: (callback) => ipcRenderer.on('log-event', (event, message) => callback(message)),
+  onLogEvent: (callback) => ipcRenderer.on('log-event', (event, message) => callback(event, message)),
   onSteamGuardRequired: (callback) =>
     ipcRenderer.on('steamGuard-required', (event, domain) => callback(domain)),
   
@@ -32,10 +32,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // New events
   onAccountNotRegistered: (callback) => ipcRenderer.on('account-not-registered', (event, account) => callback(account)),
   onLoginWarning: (callback) => ipcRenderer.on('login-warning', (event, message) => callback(message)),
-
+  
   onInventoryNeeds: (callback) => ipcRenderer.on('inventory-needs', (_e,data) => callback(data)),
   moveItemsFromStorage: (payload) => ipcRenderer.invoke('move-items-from-storage', payload),
-
-
-
 });
