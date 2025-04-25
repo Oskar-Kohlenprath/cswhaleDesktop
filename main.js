@@ -1183,9 +1183,21 @@ async function validateAllStoredTokens() {
  * show a modal.  The actual move operation is started from renderer.
  */
 async function checkInventoryNeeds(steamId) {
+
+  console.log("running the api call to inventory needs")
+
   const url =
     `https://cs-assets-oskarkohlenprath.pythonanywhere.com/api/inventory_needs/${steamId}`;
+
+
+  console.log(url)
+
+
   const { data } = await axios.get(url, { withCredentials: true });
+
+
+  console.log(url)
+
 
   if (!data.success) {
     throw new Error(data.error || 'unknown error');
