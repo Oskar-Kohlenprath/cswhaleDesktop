@@ -464,6 +464,15 @@
       width: 400px;
       text-align: center;
     }
+
+
+    #moveItemsModal .modal-content button:first-of-type { margin-right:12px; }
+
+
+    
+
+
+
   </style>
 
 
@@ -649,6 +658,18 @@
   </div>
 
 
+    <!-- Modal: offer to move items out of storage -->
+  <div class="modal-overlay" id="moveItemsModal" style="display:none;">
+    <div class="modal-content">
+      <h2>Missing Items</h2>
+      <p id="moveItemsText">
+        We found items that must be moved from storage into your inventory
+        for pending orders. Do you want to move them now?
+      </p>
+      <button id="moveItemsYes">Yes, move items</button>
+      <button id="moveItemsNo">Later</button>
+    </div>
+  </div>
 
 
 

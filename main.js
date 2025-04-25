@@ -278,6 +278,19 @@ ipcMain.handle('login-with-refresh-token', async (event, steamId) => {
 
 
 
+ipcMain.handle('move-items-from-storage', async (_event, payload) => {
+  try {
+    await performMoves(payload);         // see next section
+    return { success: true };
+  } catch (err) {
+    logger(`move-items failed: ${err.message}`);
+    return { success: false, error: err.toString() };
+  }
+});
+
+
+
+
 // Listen for login credentials from the renderer (username & password)
 ipcMain.on('login-credentials', async (event, credentials) => {
   try {
@@ -708,6 +721,18 @@ async function initCSGO(credentials) {
             displayName: loggedInAccount.displayName,
             avatarUrl: loggedInAccount.avatarUrl || 'https://via.placeholder.com/64'
           });
+
+          // ── NEW: ask Flask what we still need in live inventory ─────────────
+          try {
+          await checkInventoryNeeds(steamId);
+          } catch (err) {
+          logger(`inventory-needs check failed: ${err.message}`);
+          }
+          
+
+
+
+
         } else {
           // Not a registered account
           logger(`Account ${steamId} not found in Flask accounts list`);
@@ -1146,3 +1171,109 @@ async function validateAllStoredTokens() {
     logger(`Error validating tokens: ${err.message}`);
   }
 }
+
+
+
+
+
+
+/**
+ * Call the Flask /api/inventory_needs/<steam_id> endpoint.
+ * If the response contains missing items, notify renderer so it can
+ * show a modal.  The actual move operation is started from renderer.
+ */
+async function checkInventoryNeeds(steamId) {
+  const url =
+    `https://cs-assets-oskarkohlenprath.pythonanywhere.com/api/inventory_needs/${steamId}`;
+  const { data } = await axios.get(url, { withCredentials: true });
+
+  if (!data.success) {
+    throw new Error(data.error || 'unknown error');
+  }
+
+  const needsSomething =
+    data.needed && data.needed.some(n => n.missing > 0 && n.storage_assetids.length);
+
+  if (needsSomething) {
+    mainWindow.webContents.send('inventory-needs', data);
+  }
+}
+
+
+
+
+/**
+ * payload = { locked_assetids, needed }   (exactly what Flask sent)
+ * Strategy:
+ *   – loop over needed[]
+ *   – for each storage_assetid: locate its casket, pull it out
+ *   – if inventory would overflow: push a not-locked item to ANY casket
+ * You already have helpers: fetchAllCaskets, fetchCasketContents,
+ * csgo.addToCasket / removeFromCasket.  Re-use them.
+ */
+async function performMoves({ locked_assetids, needed }) {
+  logger('Starting automatic inventory-balancing…');
+
+  // 1.  Make a quick inventory + storage snapshot
+  const webInv = await getWebInventory();
+  const invSize = webInv.length;
+
+  // 2.  Flatten all asset-ids we must bring into inventory
+  const bringIn = needed.flatMap(n => n.storage_assetids.slice(0, n.missing));
+
+  if (bringIn.length === 0) return;          // nothing to do
+
+  // 3.  Make room if necessary
+  const projected = invSize + bringIn.length;
+  if (projected > SAFE_INVENTORY_SIZE) {
+    const overflow = projected - SAFE_INVENTORY_SIZE;
+    logger(`Need to park ${overflow} item(s) to storage…`);
+
+    const victims = webInv
+      .filter(it => !locked_assetids.includes(it.assetid))
+      .slice(0, overflow);
+
+    if (victims.length < overflow) {
+      throw new Error('Not enough movable items to free space in inventory');
+    }
+
+    // push each victim into the first casket that still has space
+    const caskets = await fetchAllCaskets();
+    let casketPtr = 0;
+
+    for (const v of victims) {
+      while (casketPtr < caskets.length) {
+        const ck = caskets[casketPtr];
+        if (ck.itemCount < MAX_CASKET_SIZE) {
+          csgo.addToCasket(ck.casketId, v.assetid);
+          ck.itemCount++;
+          await delay(DELAY_MS);
+          break;
+        }
+        casketPtr++;
+      }
+    }
+  }
+
+  // 4.  Pull requested items out of their caskets
+  for (const aid of bringIn) {
+    // naïve: try every casket until we see it
+    const caskets = await fetchAllCaskets();
+    let found = false;
+
+    for (const ck of caskets) {
+      const contents = await fetchCasketContents(ck.casketId);
+      const hit = contents.find(it => it.id === aid);
+      if (hit) {
+        csgo.removeFromCasket(ck.casketId, aid);
+        await delay(DELAY_MS);
+        found = true;
+        break;
+      }
+    }
+    if (!found) logger(`WARN: could not find assetid ${aid} in any casket`);
+  }
+
+  logger('Automatic moves finished.');
+}
+

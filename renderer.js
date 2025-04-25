@@ -166,3 +166,39 @@ function login() {
   
   window.electronAPI.login({ username, password });
 }
+
+
+
+
+
+
+
+
+
+
+
+// 1) Listen for the signal from main
+window.electronAPI.onInventoryNeeds((data) => {
+  // save payload globally
+  window._inventoryNeedsPayload = data;
+
+  // show modal
+  document.getElementById('moveItemsModal').style.display = 'flex';
+
+  // quick summary into the text
+  const totalMissing = data.needed.reduce((s,n)=>s+n.missing,0);
+  document.getElementById('moveItemsText').textContent =
+    `You are missing ${totalMissing} item(s) for open orders. Move them now?`;
+});
+
+// 2) modal buttons
+document.getElementById('moveItemsYes').onclick = async () => {
+  const resp = await window.electronAPI.moveItemsFromStorage(window._inventoryNeedsPayload);
+  alert(resp.success ? 'All done!' : `Error: ${resp.error}`);
+  document.getElementById('moveItemsModal').style.display = 'none';
+};
+document.getElementById('moveItemsNo').onclick = () => {
+  document.getElementById('moveItemsModal').style.display = 'none';
+};
+
+

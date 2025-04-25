@@ -32,4 +32,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // New events
   onAccountNotRegistered: (callback) => ipcRenderer.on('account-not-registered', (event, account) => callback(account)),
   onLoginWarning: (callback) => ipcRenderer.on('login-warning', (event, message) => callback(message)),
+
+  onInventoryNeeds: (callback) => ipcRenderer.on('inventory-needs', (_e,data) => callback(data)),
+  moveItemsFromStorage: (payload) => ipcRenderer.invoke('move-items-from-storage', payload),
+
+
+
 });
