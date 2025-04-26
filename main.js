@@ -389,19 +389,9 @@ async function saveAccountData({
     await saveAccountsJSON(accounts);
 
     // If this was a token update, send notification to the user
-    if (refreshToken && refreshToken.trim() !== "") {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(
-          "login-warning",
-          `Refresh token updated for account ${displayName || steamId}`
-        );
-      }
-    }
+    
   } catch (err) {
     logger.error("Error saving account data", err);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("storage-error", "Failed to save account data");
-    }
   }
 }
 
@@ -1344,30 +1334,44 @@ async function promptUserFor2FACodeInRenderer() {
  * @param {string} steamId - Steam ID
  */
 async function checkInventoryNeeds(steamId) {
-  logger.info("Checking inventory needs from API");
+  // ①  Push authoritative snapshot to the server
+  logger.info("Synchronising inventory snapshot with Flask …");
+  try {
+    await syncInventoryWithServer(steamId);  // <-- waits for HTTP 200
+  } catch (syncErr) {
+    logger.error("Inventory sync failed – aborting inventory-needs check", syncErr);
+    throw syncErr;                           // bubble up – caller decides next step
+  }
 
+  // ②  Now fetch “what do we still need?”
+  logger.info("Fetching inventory-needs from API");
   const url = `${API_BASE_URL}/inventory_needs/${steamId}`;
 
   try {
     const { data } = await axios.get(url, { withCredentials: true });
 
     if (!data.success) {
-      throw new Error(data.error || 'Unknown error');
+      throw new Error(data.error || "Unknown error");
     }
 
     const needsSomething =
-      data.needed && data.needed.some(n => n.missing > 0 && n.storage_assetids.length);
+      Array.isArray(data.needed) &&
+      data.needed.some(n => n.missing > 0 && n.storage_assetids.length);
 
-    if (needsSomething) {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('inventory-needs', data);
-      }
+    if (needsSomething && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("inventory-needs", data);
     }
   } catch (err) {
     logger.error("Failed to check inventory needs", err);
     throw err;
   }
 }
+
+
+
+
+
+
 
 /**
  * Perform item moves from storage to inventory
@@ -1444,6 +1448,82 @@ async function performMoves({ locked_assetids, needed }) {
 
   logger.info('Automatic moves finished successfully');
 }
+
+
+
+
+
+
+
+
+
+
+
+async function syncInventoryWithServer(steamId64) {
+  logger.info("Building live inventory snapshot…");
+
+  // 1) live inventory -------------------------------------------------------
+  const webInv = await getWebInventory();           // already logs size
+  const inventoryPayload = webInv.map(item => ({
+    assetid:           String(item.assetid),
+    classid:           String(item.classid  || ""),
+    instanceid:        String(item.instanceid || ""),
+    market_hash_name:  item.market_hash_name || "",
+    icon_url:          item.icon_url || "",
+    tradable:          item.tradable ? 1 : 0
+  }));
+
+  // 2) storage units --------------------------------------------------------
+  const payload = { inventory: inventoryPayload };
+
+  try {
+    const caskets = await fetchAllCaskets();        // [{casketId, …}, …]
+
+    // NOTE: pulling every casket serially avoids hammering the GC.
+    // With < 100 caskets this is still < 2-3 s; parallelize if needed.
+    for (const ck of caskets) {
+      try {
+        const items = await fetchCasketContents(ck.casketId);
+        payload[ck.casketId] = items.map(it => String(it.id)); // assetids only
+      } catch (err) {
+        logger.error(`Failed to read casket ${ck.casketId}`, err);
+        // Per spec we simply omit the casket; server will ignore unknown ids.
+      }
+    }
+  } catch (err) {
+    logger.warn("No caskets found or fetch failed – carrying on with inventory only.");
+  }
+
+  // 3) POST to Flask --------------------------------------------------------
+  const url = `${API_BASE_URL}/inventory-sync/${steamId64}`;
+  logger.info(`POST → ${url}  (inv=${inventoryPayload.length}, caskets=${Object.keys(payload).length - 1})`);
+
+  const { data, status } = await axios.post(url, payload, { withCredentials: true });
+  if (status !== 200 || !data.status || data.status !== "ok") {
+    throw new Error(`inventory-sync failed (${status})`);
+  }
+
+  logger.info(`Sync complete – upserts=${data.upserts}, deleted=${data.deleted}`);
+  return data;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Handle app quit
 app.on('quit', () => {
