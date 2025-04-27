@@ -1455,65 +1455,69 @@ async function performMoves({ locked_assetids, needed }) {
 
 
 
-
-
-
+function savePayloadLocally(payload) {
+  try {
+    const filePath = path.join(os.tmpdir(), `inv_sync_${Date.now()}.json`);
+    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
+    logger.info(`payload saved locally to ${filePath}`);
+  } catch (err) {
+    logger.warn(`could not save payload locally: ${err.message}`);
+  }
+}
 
 async function syncInventoryWithServer(steamId64) {
-  logger.info("Building live inventory snapshot…");
+  // 1) live inventory ------------------------------------------------------
+  const webInv = await getWebInventory();
+  const payload = {
+    inventory: webInv.map((i) => ({
+      assetid: String(i.assetid),
+      market_hash_name: i.market_hash_name || "",
+      tradable: i.tradable ? 1 : 0,
+    })),
+  };
 
-  // 1) live inventory -------------------------------------------------------
-  const webInv = await getWebInventory();           // already logs size
-  const inventoryPayload = webInv.map(item => ({
-    assetid:           String(item.assetid),
-    classid:           String(item.classid  || ""),
-    instanceid:        String(item.instanceid || ""),
-    market_hash_name:  item.market_hash_name || "",
-    icon_url:          item.icon_url || "",
-    tradable:          item.tradable ? 1 : 0
-  }));
-
-  // 2) storage units --------------------------------------------------------
-  const payload = { inventory: inventoryPayload };
-
+  // 2) storage units -------------------------------------------------------
   try {
-    const caskets = await fetchAllCaskets();        // [{casketId, …}, …]
-
-    // NOTE: pulling every casket serially avoids hammering the GC.
-    // With < 100 caskets this is still < 2-3 s; parallelize if needed.
+    const caskets = await fetchAllCaskets();
     for (const ck of caskets) {
       try {
         const items = await fetchCasketContents(ck.casketId);
-        payload[ck.casketId] = items.map(it => String(it.id)); // assetids only
-      } catch (err) {
-        logger.error(`Failed to read casket ${ck.casketId}`, err);
-        // Per spec we simply omit the casket; server will ignore unknown ids.
+        payload[ck.casketId] = items.map((it) => String(it.id));
+      } catch (e) {
+        logger.warn(`Skipping casket ${ck.casketId}: ${e.message}`);
       }
     }
-  } catch (err) {
-    logger.warn("No caskets found or fetch failed – carrying on with inventory only.");
+  } catch (_) {
+    /* no caskets → fine */
   }
 
-  // 3) POST to Flask --------------------------------------------------------
+ 
+
+  // 3) POST to Flask -------------------------------------------------------
   const url = `${API_BASE_URL}/inventory-sync/${steamId64}`;
-  logger.info(`POST → ${url}  (inv=${inventoryPayload.length}, caskets=${Object.keys(payload).length - 1})`);
+  logger.info(`POST → ${url}`);
 
-  const { data, status } = await axios.post(url, payload, { withCredentials: true });
-  if (status !== 200 || !data.status || data.status !== "ok") {
-    throw new Error(`inventory-sync failed (${status})`);
+  try {
+    const res = await axios.post(url, payload, {
+      withCredentials: true,
+      timeout: 15_000,
+    });
+
+    logger.info("inventory-sync ok", res.data);
+    return res.data;
+  } catch (err) {
+    if (axios.isAxiosError(err) && err.response) {
+      const { status, data } = err.response;
+      logger.error(`inventory-sync HTTP ${status}`, data);
+      throw new Error(data?.error || `inventory-sync failed (${status})`);
+    }
+
+    logger.error("inventory-sync network or unknown error", err.message);
+    throw err;
   }
-
-  logger.info(`Sync complete – upserts=${data.upserts}, deleted=${data.deleted}`);
-  return data;
 }
 
-
-
-
-
-
-
-
+module.exports = syncInventoryWithServer;
 
 
 
