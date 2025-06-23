@@ -22,7 +22,7 @@ const MAX_INVENTORY_SIZE = 1000;
 const MAX_CASKET_SIZE = 1000;
 const INVENTORY_BUFFER = 50; // Increased buffer for safety
 const SAFE_INVENTORY_SIZE = MAX_INVENTORY_SIZE - INVENTORY_BUFFER;
-const API_BASE_URL = "https://cs-assets-oskarkohlenprath.pythonanywhere.com/api";
+const API_BASE_URL = "https://cswhale-green-dust-4483.fly.dev/api";
 
 // Global variables
 let mainWindow;
@@ -1372,98 +1372,91 @@ async function checkInventoryNeeds(steamId) {
 
 
 
-
 /**
  * Perform item moves from storage to inventory
  * @param {Object} payload - Move payload
  */
 async function performMoves({ locked_assetids, needed }) {
-  logger.info('Starting automatic inventory-balancing…');
+  const start = Date.now();
+  console.log('INFO Starting automatic inventory-balancing…');
 
-  // 1.  Make a quick inventory + storage snapshot
+  // 1. Fetch live inventory
+  const t1 = Date.now();
   const webInv = await getWebInventory();
-  const invSize = webInv.length;
+  console.log(`INFO Fetched live inventory: ${webInv.length} items (took ${Date.now() - t1}ms)`);
 
-  // 2.  Flatten all asset-ids we must bring into inventory
+  // 2. Determine items to bring in
   const bringIn = needed.flatMap(n => n.storage_assetids.slice(0, n.missing));
-
-  if (bringIn.length === 0) {
-    logger.info("No items need to be moved");
+  console.log(`INFO Total items to bring in: ${bringIn.length}`);
+  if (!bringIn.length) {
+    console.log(`INFO No items need to be moved (total ${Date.now() - start}ms)`);
     return;
   }
 
-  // 3.  Make room if necessary
-  const projected = invSize + bringIn.length;
-  if (projected > SAFE_INVENTORY_SIZE) {
-    const overflow = projected - SAFE_INVENTORY_SIZE;
-    logger.info(`Need to park ${overflow} item(s) to storage…`);
+  // 3. Fetch all caskets and their contents once
+  const tC = Date.now();
+  const caskets = await fetchAllCaskets();
+  console.log(`INFO Fetched ${caskets.length} caskets (took ${Date.now() - tC}ms)`);
 
+  const contentMap = {};
+  await Promise.all(caskets.map(async ck => {
+    const contents = await fetchCasketContents(ck.casketId);
+    ck.itemCount = contents.length;            // for parking
+    for (const it of contents) contentMap[it.id] = ck.casketId;
+  }));
+  console.log(`INFO Built content map for ${Object.keys(contentMap).length} items`);
+
+  // 4. Make room if needed (park oldest unlocked)
+  const freeSlots = SAFE_INVENTORY_SIZE - webInv.length;
+  if (bringIn.length > freeSlots) {
+    const overflow = bringIn.length - freeSlots;
+    console.log(`INFO Need to park ${overflow} overflow items`);
+
+    // pick victims
     const victims = webInv
       .filter(it => !locked_assetids.includes(it.assetid))
       .slice(0, overflow);
+    console.log(`INFO Selected ${victims.length} victims`);
 
-    if (victims.length < overflow) {
-      throw new Error('Not enough movable items to free space in inventory');
-    }
-
-    // push each victim into the first casket that still has space
-    const caskets = await fetchAllCaskets();
-    let casketPtr = 0;
-
+    // park each victim in round-robin
+    let ci = 0;
     for (const v of victims) {
-      while (casketPtr < caskets.length) {
-        const ck = caskets[casketPtr];
+      // find next casket with room
+      let attempts = 0;
+      while (attempts < caskets.length) {
+        const ck = caskets[ci % caskets.length];
         if (ck.itemCount < MAX_CASKET_SIZE) {
-          csgo.addToCasket(ck.casketId, v.assetid);
-          ck.itemCount++;
+          await csgo.addToCasket(ck.casketId, v.assetid);
           await delay(DELAY_MS);
+          ck.itemCount++;
+          console.log(`DEBUG Parked ${v.assetid} → casket ${ck.casketId}`);
           break;
         }
-        casketPtr++;
+        ci++; attempts++;
+      }
+      if (attempts === caskets.length) {
+        console.warn(`WARN No casket had room for ${v.assetid}`);
       }
     }
   }
 
-  // 4.  Pull requested items out of their caskets
+  // 5. Pull requested items out in one pass
   for (const aid of bringIn) {
-    // try every casket until we see it
-    const caskets = await fetchAllCaskets();
-    let found = false;
-
-    for (const ck of caskets) {
-      const contents = await fetchCasketContents(ck.casketId);
-      const hit = contents.find(it => it.id === aid);
-      if (hit) {
-        csgo.removeFromCasket(ck.casketId, aid);
-        await delay(DELAY_MS);
-        found = true;
-        break;
-      }
+    const casketId = contentMap[aid];
+    if (!casketId) {
+      console.warn(`WARN ${aid} not found in any casket`);
+      continue;
     }
-    
-    if (!found) {
-      logger.warn(`Could not find assetid ${aid} in any casket`);
-    }
+    console.log(`INFO Removing ${aid} from casket ${casketId}`);
+    await csgo.removeFromCasket(casketId, aid);
+    await delay(DELAY_MS);
   }
 
-  logger.info('Automatic moves finished successfully');
+  console.log(`INFO Automatic moves finished (totalElapsed=${Date.now() - start}ms)`);
 }
 
 
 
-
-
-
-
-function savePayloadLocally(payload) {
-  try {
-    const filePath = path.join(os.tmpdir(), `inv_sync_${Date.now()}.json`);
-    fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), "utf8");
-    logger.info(`payload saved locally to ${filePath}`);
-  } catch (err) {
-    logger.warn(`could not save payload locally: ${err.message}`);
-  }
-}
 
 async function syncInventoryWithServer(steamId64) {
   // 1) live inventory ------------------------------------------------------

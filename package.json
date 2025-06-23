@@ -17,10 +17,12 @@
     "electron": "^33.0.2",
     "fs": "0.0.1-security",
     "globaloffensive": "^3.2.0",
+    "jwt-decode": "^3.1.2",
     "keytar": "^7.9.0",
+    "os": "^0.1.2",
+    "path": "^0.12.7",
     "steam-user": "^5.2.0",
-    "steamcommunity": "^3.48.6",
-    "jwt-decode": "^3.1.2"
+    "steamcommunity": "^3.48.6"
   },
   "devDependencies": {
     "concurrently": "^8.2.0"
