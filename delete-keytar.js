@@ -2,7 +2,9 @@
 
 const keytar = require('keytar');
 
-const SERVICE_NAME = 'cs-assets-service'; // or whatever name you've been using
+const DEFAULT_SERVICE = 'cs-assets-service';
+const SERVICE_NAME = process.argv[2] || DEFAULT_SERVICE;
+
 
 async function deleteAllKeytarData() {
   // keytar.findCredentials(serviceName) returns an array of { account, password } objects
@@ -41,16 +43,14 @@ async function printAllKeytarData() {
     }
   }
   
-  // Execute the function
- printAllKeytarData();
-
-
-
-
-
-//deleteAllKeytarData();
-
-
+if (require.main === module) {
+  deleteAllKeytarData()
+    .then(() => console.log("Done"))
+    .catch(err => {
+      console.error("Failed to delete credentials:", err);
+      process.exit(1);
+    });
+}
 
 
 

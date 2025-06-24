@@ -15,7 +15,10 @@ const jwt_decode = require("jwt-decode");
 const { autoUpdater } = require("electron-updater");
 
 // Constants
-const SERVICE_NAME = "cs-assets-service";
+const BASE_SERVICE_NAME = "cs-assets-service";
+const SERVICE_NAME = app.isPackaged
+  ? BASE_SERVICE_NAME
+  : `${BASE_SERVICE_NAME}-dev`;
 const ACCOUNTS_KEY = "cs-assets-stored-accounts";
 const DEVICE_TOKEN_KEY = "cs-assets-device-token";
 const DELAY_MS = 130;

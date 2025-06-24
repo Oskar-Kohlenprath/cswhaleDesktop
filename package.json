@@ -1,6 +1,6 @@
 {
   "name": "cswhale-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "cswhale storage unit Verification Tool",
   "main": "main.js",
   "homepage": "https://cswhale.com",
@@ -16,7 +16,9 @@
     "build-mac": "electron-builder --mac",
     "build-linux": "electron-builder --linux",
     "dist": "electron-builder --publish=never",
-    "publish": "electron-builder --publish=always"
+    "publish": "electron-builder --publish=always",
+    "clean-keytar-dev": "node delete-keytar.js cs-assets-service-dev",
+    "clean-keytar-prod": "node delete-keytar.js cs-assets-service"
   },
   "keywords": [
     "cswhale",
