@@ -50,6 +50,17 @@ const appState = {
   isLoading: false
 };
 
+
+
+// Update-related state
+const updateState = {
+  updateAvailable: false,
+  downloading: false,
+  downloaded: false,
+  currentVersion: null
+};
+
+
 // Toast notification system
 const toast = {
   container: document.getElementById('toast-container'),
@@ -138,6 +149,158 @@ function showView(viewName) {
     window.electronAPI.fetchStorage();
   }
 }
+
+
+
+
+
+
+
+// Create update notification UI
+function createUpdateNotification() {
+  const updateNotification = document.createElement('div');
+  updateNotification.id = 'update-notification';
+  updateNotification.className = 'update-notification';
+  updateNotification.innerHTML = `
+    <div class="update-content">
+      <div class="update-icon">🔄</div>
+      <div class="update-text">
+        <div class="update-title">Update Available</div>
+        <div class="update-message">A new version is available</div>
+      </div>
+      <div class="update-actions">
+        <button id="download-update-btn" class="btn btn-primary btn-sm">Download</button>
+        <button id="dismiss-update-btn" class="btn btn-secondary btn-sm">Later</button>
+      </div>
+    </div>
+    <div class="update-progress" id="update-progress" style="display: none;">
+      <div class="progress-bar" id="update-progress-bar"></div>
+      <div class="progress-text" id="update-progress-text">Downloading...</div>
+    </div>
+  `;
+  
+  document.body.appendChild(updateNotification);
+  
+  // Event listeners
+  document.getElementById('download-update-btn').addEventListener('click', downloadUpdate);
+  document.getElementById('dismiss-update-btn').addEventListener('click', dismissUpdate);
+  
+  return updateNotification;
+}
+
+// Show update available notification
+function showUpdateNotification(info) {
+  let notification = document.getElementById('update-notification');
+  if (!notification) {
+    notification = createUpdateNotification();
+  }
+  
+  const messageEl = notification.querySelector('.update-message');
+  messageEl.textContent = `Version ${info.version} is available`;
+  
+  notification.style.display = 'block';
+  setTimeout(() => notification.classList.add('show'), 100);
+}
+
+// Download update
+async function downloadUpdate() {
+  const btn = document.getElementById('download-update-btn');
+  const progressEl = document.getElementById('update-progress');
+  
+  btn.disabled = true;
+  btn.textContent = 'Downloading...';
+  progressEl.style.display = 'block';
+  
+  updateState.downloading = true;
+  
+  try {
+    const result = await window.electronAPI.downloadUpdate();
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+  } catch (error) {
+    logger.error('Failed to download update:', error);
+    toast.error('Failed to download update: ' + error.message);
+    
+    btn.disabled = false;
+    btn.textContent = 'Download';
+    progressEl.style.display = 'none';
+    updateState.downloading = false;
+  }
+}
+
+// Dismiss update notification
+function dismissUpdate() {
+  const notification = document.getElementById('update-notification');
+  if (notification) {
+    notification.classList.remove('show');
+    setTimeout(() => {
+      notification.style.display = 'none';
+    }, 300);
+  }
+}
+
+// Install update
+async function installUpdate() {
+  try {
+    await window.electronAPI.installUpdate();
+  } catch (error) {
+    logger.error('Failed to install update:', error);
+    toast.error('Failed to install update: ' + error.message);
+  }
+}
+
+// Handle download progress
+function handleDownloadProgress(progress) {
+  const progressBar = document.getElementById('update-progress-bar');
+  const progressText = document.getElementById('update-progress-text');
+  
+  if (progressBar && progressText) {
+    progressBar.style.width = `${progress.percent}%`;
+    progressText.textContent = `Downloading... ${Math.round(progress.percent)}%`;
+  }
+}
+
+// Handle update downloaded
+function handleUpdateDownloaded(info) {
+  const notification = document.getElementById('update-notification');
+  if (notification) {
+    notification.innerHTML = `
+      <div class="update-content">
+        <div class="update-icon">✅</div>
+        <div class="update-text">
+          <div class="update-title">Update Ready</div>
+          <div class="update-message">Version ${info.version} has been downloaded</div>
+        </div>
+        <div class="update-actions">
+          <button id="install-update-btn" class="btn btn-success btn-sm">Restart & Install</button>
+          <button id="install-later-btn" class="btn btn-secondary btn-sm">Install Later</button>
+        </div>
+      </div>
+    `;
+    
+    document.getElementById('install-update-btn').addEventListener('click', installUpdate);
+    document.getElementById('install-later-btn').addEventListener('click', dismissUpdate);
+  }
+  
+  updateState.downloaded = true;
+  updateState.downloading = false;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // Loading indicator functions
 function showLoading(withProgress = false) {
@@ -527,6 +690,32 @@ function setupEventListeners() {
 
 // Set up IPC event handlers
 function setupIPCHandlers() {
+
+
+
+  function setupUpdateHandlers() {
+  // Update available
+  window.electronAPI.onUpdateAvailable((info) => {
+    logger.log(`Update available: ${info.version}`);
+    updateState.updateAvailable = true;
+    updateState.currentVersion = info.version;
+    showUpdateNotification(info);
+  });
+  
+  // Download progress
+  window.electronAPI.onDownloadProgress((progress) => {
+    handleDownloadProgress(progress);
+  });
+  
+  // Update downloaded
+  window.electronAPI.onUpdateDownloaded((info) => {
+    logger.log(`Update downloaded: ${info.version}`);
+    handleUpdateDownloaded(info);
+    toast.success('Update downloaded successfully!');
+  });
+  }
+
+
   // Login events
   window.electronAPI.onLoginSuccess(() => {
     hideLoading();
@@ -617,6 +806,7 @@ function initApp() {
   setupEventListeners();
   setupIPCHandlers();
   showView('login');
+  setupUpdateHandlers(); // Add this line
   logger.log('Application initialized');
 }
 

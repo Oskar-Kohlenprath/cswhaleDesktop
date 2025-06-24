@@ -677,3 +677,100 @@
     font-size: 1.125rem;
     margin-bottom: 1.5rem;
   }
+
+
+/* ADD TO styles.css - Update Notification Styles */
+
+.update-notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 1005;
+  max-width: 400px;
+  display: none;
+  transform: translateX(100%);
+  transition: transform 0.3s ease-out;
+}
+
+.update-notification.show {
+  transform: translateX(0);
+}
+
+.update-content {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  gap: 1rem;
+}
+
+.update-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.update-text {
+  flex: 1;
+}
+
+.update-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.update-message {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.update-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.btn-sm {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+}
+
+.update-progress {
+  padding: 0 1rem 1rem 1rem;
+}
+
+.update-progress .progress-bar {
+  height: 4px;
+  background-color: var(--primary);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  margin-bottom: 0.5rem;
+}
+
+.update-progress .progress-text {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .update-notification {
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+  
+  .update-content {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+  }
+  
+  .update-actions {
+    justify-content: center;
+  }
+}

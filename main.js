@@ -12,6 +12,7 @@ const SteamCommunity = require("steamcommunity");
 const axios = require("axios");
 const keytar = require("keytar");
 const jwt_decode = require("jwt-decode");
+const { autoUpdater } = require("electron-updater");
 
 // Constants
 const SERVICE_NAME = "cs-assets-service";
@@ -31,6 +32,10 @@ let csgo; // GlobalOffensive instance
 let community; // SteamCommunity instance
 let lastReceivedToken = null;
 let logStream; // For file logging
+
+
+autoUpdater.autoDownload = false; // Don't auto-download, ask user first
+autoUpdater.checkForUpdatesAndNotify();
 
 /**
  * Enhanced logger with file logging and console output
@@ -151,6 +156,12 @@ function createWindow() {
     mainWindow.show();
   });
 
+  setTimeout(() => {
+  if (!process.env.NODE_ENV || process.env.NODE_ENV === 'production') {
+    autoUpdater.checkForUpdatesAndNotify();
+  }
+}, 5000);
+
   // Open DevTools only in development
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools();
@@ -200,6 +211,101 @@ app.on('activate', () => {
     createWindow();
   }
 });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// Auto-updater event handlers
+autoUpdater.on('checking-for-update', () => {
+  logger.info('Checking for update...');
+});
+
+autoUpdater.on('update-available', (info) => {
+  logger.info('Update available:', info.version);
+  
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-available', {
+      version: info.version,
+      releaseNotes: info.releaseNotes
+    });
+  }
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  logger.info('Update not available');
+});
+
+autoUpdater.on('error', (err) => {
+  logger.error('Error in auto-updater:', err);
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('download-progress', {
+      percent: progressObj.percent,
+      transferred: progressObj.transferred,
+      total: progressObj.total
+    });
+  }
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  logger.info('Update downloaded');
+  
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-downloaded', {
+      version: info.version
+    });
+  }
+});
+
+// IPC handlers for updater
+ipcMain.handle('download-update', async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+    return { success: true };
+  } catch (error) {
+    logger.error('Failed to download update:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('install-update', async () => {
+  autoUpdater.quitAndInstall();
+});
+
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { success: true, updateInfo: result?.updateInfo };
+  } catch (error) {
+    logger.error('Failed to check for updates:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
 
 /**
  * Fetch and update accounts from Flask API

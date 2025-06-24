@@ -35,4 +35,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   
   onInventoryNeeds: (callback) => ipcRenderer.on('inventory-needs', (_e,data) => callback(data)),
   moveItemsFromStorage: (payload) => ipcRenderer.invoke('move-items-from-storage', payload),
+
+
+
+
+  // Auto-updater functions
+  downloadUpdate: () => ipcRenderer.invoke('download-update'),
+  installUpdate: () => ipcRenderer.invoke('install-update'), 
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+
+  // Auto-updater events
+  onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (event, info) => callback(info)),
+  onDownloadProgress: (callback) => ipcRenderer.on('download-progress', (event, progress) => callback(progress)),
+  onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (event, info) => callback(info)),
 });
