@@ -1,24 +1,33 @@
 {
-  "name": "cs-assets-inventory-verifier",
+  "name": "cswhale-desktop",
   "version": "1.0.0",
-  "description": "CS-Assets Inventory Verification Tool",
+  "description": "cswhale storage unit Verification Tool",
   "main": "main.js",
-  "homepage": "https://cs-assets.com",
-  "author": "CS-Assets",
+  "homepage": "https://cswhale.com",
+  "author": "cswhale.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Oskar-Kohlenprath/cswhaleDesktop.git"
+  },
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
     "build-win": "electron-builder --win",
-    "build-mac": "electron-builder --mac", 
+    "build-mac": "electron-builder --mac",
     "build-linux": "electron-builder --linux",
     "dist": "electron-builder --publish=never",
     "publish": "electron-builder --publish=always"
   },
-  "keywords": ["cs-assets", "csgo", "inventory", "verification"],
+  "keywords": [
+    "cswhale",
+    "csgo",
+    "inventory",
+    "verification"
+  ],
   "license": "ISC",
   "dependencies": {
     "axios": "^1.4.0",
-    "dotenv": "^16.3.1", 
+    "dotenv": "^16.3.1",
     "electron": "^33.0.2",
     "electron-updater": "^6.1.0",
     "fs": "0.0.1-security",
@@ -33,71 +42,120 @@
     "electron-builder": "^24.0.0"
   },
   "build": {
-    "appId": "com.cs-assets.inventory-verifier",
-    "productName": "CS-Assets Inventory Verifier",
-    "copyright": "Copyright © 2024 CS-Assets",
+    "appId": "com.cswhale.inventory-verifier",
+    "productName": "cswhale Inventory Verifier",
+    "copyright": "Copyright © 2024 cswhale",
     "directories": {
       "output": "dist"
     },
     "files": [
       "main.js",
-      "renderer.js", 
+      "renderer.js",
       "preload.js",
       "styles.css",
       "index.html",
       "static/**/*",
       "node_modules/**/*",
-      "!node_modules/.cache"
+      "!node_modules/.cache",
+      "!dist/**/*",
+      "!.git/**/*",
+      "!.gitignore",
+      "!build-and-upload.js",
+      "!delete-keytar.js"
     ],
-
-
-
     "extraResources": [
       {
         "from": "static/",
         "to": "static/",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "static/images/icon.ico",
-      "publisherName": "CS-Assets"
+      "publisherName": "cswhale",
+      "certificateSubjectName": "cswhale",
+      "verifyUpdateCodeSignature": false
     },
     "mac": {
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "static/images/icon.icns",
-      "category": "public.app-category.utilities"
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "linux": {
       "target": [
         {
           "target": "AppImage",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "static/images/icon.png",
-      "category": "Utility"
+      "category": "Utility",
+      "desktop": {
+        "Name": "cswhale",
+        "Comment": "Scan CS:GO storage units",
+        "Categories": "Utility;"
+      }
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}.${ext}",
+      "contents": [
+        {
+          "x": 410,
+          "y": 150,
+          "type": "link",
+          "path": "/Applications"
+        },
+        {
+          "x": 130,
+          "y": 150,
+          "type": "file"
+        }
+      ]
+    },
+    "appImage": {
+      "artifactName": "${productName}-${version}.${ext}"
     },
     "publish": {
-      "provider": "generic",
-      "url": "https://YOUR_FLY_APP.fly.dev/downloads/"
+      "provider": "github",
+      "owner": "Oskar-Kohlenprath",
+      "repo": "cswhaleDesktop",
+      "releaseType": "release",
+      "publishAutoUpdate": true
+    },
+    "releaseInfo": {
+      "releaseNotes": "Bug fixes and performance improvements"
     }
   }
 }
