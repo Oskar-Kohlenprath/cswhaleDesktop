@@ -28,7 +28,7 @@
   "dependencies": {
     "axios": "^1.4.0",
     "dotenv": "^16.3.1",
-    "electron": "^33.0.2",
+    
     "electron-updater": "^6.1.0",
     "fs": "0.0.1-security",
     "globaloffensive": "^3.2.0",
@@ -39,7 +39,8 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.0",
-    "electron-builder": "^24.0.0"
+    "electron-builder": "^24.0.0",
+    "electron": "^33.0.2"
   },
   "build": {
     "appId": "com.cswhale.inventory-verifier",
@@ -82,9 +83,7 @@
         }
       ],
       "icon": "static/images/icon.ico",
-      "publisherName": "cswhale",
-      "certificateSubjectName": "cswhale",
-      "verifyUpdateCodeSignature": false
+      "publisherName": "cswhale"
     },
     "mac": {
       "target": [
