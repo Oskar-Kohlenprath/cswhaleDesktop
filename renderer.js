@@ -13,6 +13,8 @@ const elements = {
   
   // Account elements
   savedAccountsList: document.getElementById('saved-accounts-list'),
+  savedAccountsSection: document.getElementById('saved-accounts-section'),
+  savedAccountsDivider: document.getElementById('saved-accounts-divider'),
   displayUsername: document.getElementById('display-username'),
   userAvatar: document.getElementById('user-avatar'),
   
@@ -356,13 +358,21 @@ async function loadSavedAccounts() {
   try {
     const accounts = await window.electronAPI.getSavedAccounts();
     elements.savedAccountsList.innerHTML = '';
-    
+    // Reset visibility each time
+    if (elements.savedAccountsSection) {
+      elements.savedAccountsSection.style.display = '';
+    }
+    if (elements.savedAccountsDivider) {
+      elements.savedAccountsDivider.style.display = '';
+    }
+
     if (!accounts || accounts.length === 0) {
-      elements.savedAccountsList.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-text">No saved accounts found</div>
-        </div>
-      `;
+      if (elements.savedAccountsSection) {
+        elements.savedAccountsSection.style.display = 'none';
+      }
+      if (elements.savedAccountsDivider) {
+        elements.savedAccountsDivider.style.display = 'none';
+      }
       return;
     }
     
@@ -730,6 +740,7 @@ function setupIPCHandlers() {
   
   // Steam Guard
   window.electronAPI.onSteamGuardRequired((domain) => {
+    hideLoading();
     const promptEl = document.getElementById('steam-guard-prompt');
     promptEl.textContent = domain
       ? `Enter Steam Guard code for ${domain}:`
@@ -740,6 +751,7 @@ function setupIPCHandlers() {
   
   // 2FA
   window.electronAPI.onPleaseEnter2FA(() => {
+    hideLoading();
     showModal('device-2fa-modal');
   });
   
