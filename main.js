@@ -40,6 +40,22 @@ let logStream; // For file logging
 autoUpdater.autoDownload = false; // Don't auto-download, ask user first
 autoUpdater.checkForUpdatesAndNotify();
 
+
+
+/**
+ * Get device token from keytar
+ * @returns {Promise<string|null>} Device token or null
+ */
+async function getDeviceToken() {
+  try {
+    return await keytar.getPassword(SERVICE_NAME, DEVICE_TOKEN_KEY);
+  } catch (err) {
+    logger.error("Error getting device token", err);
+    return null;
+  }
+}
+
+
 /**
  * Enhanced logger with file logging and console output
  */
@@ -855,10 +871,18 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
  * @param {string} steamAccountId - Steam account ID
  * @returns {Object} Server response
  */
+// Update sendNewItemsToServer function
 async function sendNewItemsToServer(casketId, newlyAddedItems, steamAccountId) {
+  const deviceToken = await getDeviceToken();
+  if (!deviceToken) {
+    logger.error("No device token available for sending new items");
+    throw new Error("Device token required");
+  }
+
   try {
     const serverUrl = `${API_BASE_URL}/register_storage_items`;
     const payload = {
+      device_token: deviceToken, // Add device token
       steam_account_id: steamAccountId,
       storage_unit_id: casketId,
       items: newlyAddedItems,
@@ -885,12 +909,20 @@ async function sendNewItemsToServer(casketId, newlyAddedItems, steamAccountId) {
  * @param {string} steamAccountId - Steam account ID
  * @returns {Object} Server response
  */
+// Update sendStorageUnitsToServer function
 async function sendStorageUnitsToServer(caskets, steamAccountId) {
+  const deviceToken = await getDeviceToken();
+  if (!deviceToken) {
+    logger.error("No device token available for sending storage units");
+    throw new Error("Device token required");
+  }
+
   try {
     const serverUrl = `${API_BASE_URL}/register_storage_units`;
     
     // Prepare payload with steam_account_id and storage units
     const payload = {
+      device_token: deviceToken, // Add device token
       steam_account_id: steamAccountId,
       storage_units: caskets.map((casket) => ({
         storage_unit_id: casket.casketId,
@@ -1443,21 +1475,22 @@ async function promptUserFor2FACodeInRenderer() {
  * @param {string} steamId - Steam ID
  */
 async function checkInventoryNeeds(steamId) {
-  // ①  Push authoritative snapshot to the server
-  logger.info("Synchronising inventory snapshot with Flask …");
-  try {
-    await syncInventoryWithServer(steamId);  // <-- waits for HTTP 200
-  } catch (syncErr) {
-    logger.error("Inventory sync failed – aborting inventory-needs check", syncErr);
-    throw syncErr;                           // bubble up – caller decides next step
-  }
-
-  // ②  Now fetch “what do we still need?”
   logger.info("Fetching inventory-needs from API");
   const url = `${API_BASE_URL}/inventory_needs/${steamId}`;
+  
+  const deviceToken = await getDeviceToken();
+  if (!deviceToken) {
+    logger.error("No device token available for inventory needs check");
+    throw new Error("Device token required");
+  }
 
   try {
-    const { data } = await axios.get(url, { withCredentials: true });
+    const { data } = await axios.get(url, { 
+      withCredentials: true,
+      params: {
+        device_token: deviceToken
+      }
+    });
 
     if (!data.success) {
       throw new Error(data.error || "Unknown error");
@@ -1475,7 +1508,6 @@ async function checkInventoryNeeds(steamId) {
     throw err;
   }
 }
-
 
 
 
@@ -1567,10 +1599,18 @@ async function performMoves({ locked_assetids, needed }) {
 
 
 
+// Update syncInventoryWithServer function
 async function syncInventoryWithServer(steamId64) {
-  // 1) live inventory ------------------------------------------------------
+  const deviceToken = await getDeviceToken();
+  if (!deviceToken) {
+    logger.error("No device token available for inventory sync");
+    throw new Error("Device token required");
+  }
+
+  // 1) live inventory
   const webInv = await getWebInventory();
   const payload = {
+    device_token: deviceToken, // Add device token to payload
     inventory: webInv.map((i) => ({
       assetid: String(i.assetid),
       market_hash_name: i.market_hash_name || "",
@@ -1578,7 +1618,7 @@ async function syncInventoryWithServer(steamId64) {
     })),
   };
 
-  // 2) storage units -------------------------------------------------------
+  // 2) storage units
   try {
     const caskets = await fetchAllCaskets();
     for (const ck of caskets) {
@@ -1593,9 +1633,7 @@ async function syncInventoryWithServer(steamId64) {
     /* no caskets → fine */
   }
 
- 
-
-  // 3) POST to Flask -------------------------------------------------------
+  // 3) POST to Flask
   const url = `${API_BASE_URL}/inventory-sync/${steamId64}`;
   logger.info(`POST → ${url}`);
 
@@ -1618,6 +1656,7 @@ async function syncInventoryWithServer(steamId64) {
     throw err;
   }
 }
+
 
 module.exports = syncInventoryWithServer;
 
