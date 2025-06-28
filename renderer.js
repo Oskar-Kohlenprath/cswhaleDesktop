@@ -661,7 +661,9 @@ function setupEventListeners() {
   
   document.querySelectorAll('.modal-overlay').forEach(modal => {
     modal.addEventListener('click', (e) => {
-      if (e.target === modal) hideModal(modal.id);
+      if (e.target === modal && modal.id !== 'device-2fa-modal') {
+        hideModal(modal.id);
+      }
     });
   });
   
