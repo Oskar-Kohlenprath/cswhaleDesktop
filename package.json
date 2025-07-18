@@ -11,6 +11,7 @@
   },
   "scripts": {
     "start": "electron .",
+    "generate-icons": "electron-icon-builder --input=./icon-source.png --output=./static/images --flatten",
     "build": "electron-builder",
     "build-win": "electron-builder --win",
     "build-mac": "electron-builder --mac",
@@ -30,19 +31,19 @@
   "dependencies": {
     "axios": "^1.4.0",
     "dotenv": "^16.3.1",
-    
     "electron-updater": "^6.1.0",
     "fs": "0.0.1-security",
     "globaloffensive": "^3.2.0",
+    "jwt-decode": "^3.1.2",
     "keytar": "^7.9.0",
     "steam-user": "^5.2.0",
-    "steamcommunity": "^3.48.6",
-    "jwt-decode": "^3.1.2"
+    "steamcommunity": "^3.48.6"
   },
   "devDependencies": {
     "concurrently": "^8.2.0",
+    "electron": "^33.0.2",
     "electron-builder": "^24.0.0",
-    "electron": "^33.0.2"
+    "electron-icon-builder": "^2.0.1"
   },
   "build": {
     "appId": "com.cswhale.inventory-verifier",
@@ -84,7 +85,7 @@
           ]
         }
       ],
-      "icon": "static/images/icon.ico",
+      "icon": "static/images/icons/icon.ico",
       "publisherName": "cswhale"
     },
     "mac": {
@@ -97,7 +98,7 @@
           ]
         }
       ],
-      "icon": "static/images/icon.icns",
+      "icon": "static/images/icons/icon.icns",
       "category": "public.app-category.utilities",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
@@ -113,7 +114,7 @@
           ]
         }
       ],
-      "icon": "static/images/icon.png",
+      "icon": "static/images/icons/icon.png",
       "category": "Utility",
       "desktop": {
         "Name": "cswhale",

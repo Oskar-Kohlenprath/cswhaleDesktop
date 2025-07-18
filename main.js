@@ -887,7 +887,32 @@ async function sendNewItemsToServer(casketId, newlyAddedItems, steamAccountId) {
       storage_unit_id: casketId,
       items: newlyAddedItems,
     };
-    
+
+
+    //ab hier
+
+    logger.info(`[DEBUG] Preparing to send ${newlyAddedItems.length} items`);
+
+    // Count by market_hash_name
+    const counts = {};
+    newlyAddedItems.forEach(item => {
+      const name = item.market_hash_name || 'Unknown';
+      counts[name] = (counts[name] || 0) + 1;
+    });
+
+    // Log the top items
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    sorted.slice(0, 5).forEach(([name, count]) => {
+      logger.info(`[DEBUG] Sending ${count}x ${name}`);
+    });
+
+    // Check for duplicate assetids
+    const assetids = newlyAddedItems.map(i => i.assetid);
+    const uniqueAssetids = new Set(assetids);
+    logger.info(`[DEBUG] Asset IDs: ${assetids.length} total, ${uniqueAssetids.size} unique`);
+
+    //bis hier
+
     const resp = await axios.post(serverUrl, payload, {
       withCredentials: true,
     });
