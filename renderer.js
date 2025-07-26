@@ -327,7 +327,7 @@ function updateLoadingProgress(progress, current, total) {
   if (!appState.isLoading) return;
   
   elements.progressBar.style.width = `${progress}%`;
-  elements.progressText.textContent = `Processing ${current} / ${total} (${progress}%)`;
+  elements.progressText.textContent = `${progress}%`;  // Just show percentage
 }
 
 // Modal management

@@ -56,6 +56,23 @@ async function getDeviceToken() {
 }
 
 
+
+
+async function ensureValidDeviceToken() {
+  const token = await getDeviceToken();
+  if (!token) {
+    // If no token during active session, try to get one
+    if (user && user.steamID) {
+      const steamId = user.steamID.getSteamID64();
+      return await ensureDeviceToken(steamId);
+    }
+    throw new Error("No device token and no active session");
+  }
+  return token;
+}
+
+
+
 /**
  * Enhanced logger with file logging and console output
  */
@@ -141,19 +158,40 @@ const logger = new Logger();
  * Create the main application window
  */
 function createWindow() {
-  mainWindow = new BrowserWindow({
+
+
+    let iconPath;
+  if (process.platform === 'win32') {
+    // Windows needs .ico file
+    iconPath = app.isPackaged 
+      ? path.join(process.resourcesPath, 'static/images/icons/icon.ico')
+      : path.join(__dirname, 'static/images/icons/icon.ico');
+  } else if (process.platform === 'darwin') {
+    // macOS uses .icns
+    iconPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'static/images/icons/icon.icns')
+      : path.join(__dirname, 'static/images/icons/icon.icns');
+  } else {
+    // Linux uses .png
+    iconPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'static/images/icons/icon.png')
+      : path.join(__dirname, 'static/images/icons/icon.png');
+  }
+
+
+
+    mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    icon: path.join(__dirname, "static/images/favicon.png"),
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       enableRemoteModule: false,
     },
-    // Add modern window features
     titleBarStyle: 'hiddenInset',
-    backgroundColor: '#0f172a', // Match our dark theme background
-    show: false, // Don't show until ready
+    backgroundColor: '#0f172a',
+    show: false,
   });
 
   // Create splash screen
@@ -668,7 +706,20 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
     let currentCasketSize = casketCount;
 
     // Progress bar
-    const totalMovements = 3 * casketCount;
+    let chunkSize = 50;  // Move this from inside the while loop
+
+    // More accurate calculation based on actual behavior
+    // Replace the entire progress calculation section with:
+    // Simple calculation based on actual behavior
+    const baseChunks = Math.ceil(casketCount / chunkSize);
+
+    // Calculate total movements - space moves are rare since items 
+    // in transition don't count against the inventory limit
+    const totalMovements = (casketCount * 2) + baseChunks;
+
+    logger.info(`Progress: ${oldInventoryCount} inventory, ${casketCount} items, ` +
+                `${baseChunks} chunks => ${totalMovements} movements`);
+
     let currentMovement = 0;
     function updateProgress(extra = 1) {
       currentMovement += extra;
@@ -693,7 +744,7 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
     const newlyAddedItems = [];
 
     // Start with a chunk size
-    let chunkSize = 50;
+    
 
     while (remainingCasketItems.length > 0) {
       if (chunkSize > remainingCasketItems.length) {
@@ -757,7 +808,7 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
 
         currentInventorySize++;
         currentCasketSize--;
-        updateProgress(1);
+        updateProgress(1,);
       }
 
       // 3) Refresh local web inventory
@@ -1510,11 +1561,11 @@ async function checkInventoryNeeds(steamId) {
   }
 
   try {
-    const { data } = await axios.get(url, { 
-      withCredentials: true,
-      params: {
-        device_token: deviceToken
-      }
+    // Change to POST to secure the token
+    const { data } = await axios.post(url, { 
+      device_token: deviceToken  // Now in body, not URL
+    }, {
+      withCredentials: true
     });
 
     if (!data.success) {
