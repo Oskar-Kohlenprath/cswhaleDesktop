@@ -88,6 +88,7 @@ const scanAllState = {
   startTime: null
 };
 
+
 // Function to scan all storage units
 async function scanAllStorageUnits() {
   // Prevent multiple scans
@@ -115,6 +116,9 @@ async function scanAllStorageUnits() {
   showModal('scan-all-modal');
   updateScanAllProgress();
   
+  // Create individual unit progress display
+  createUnitProgressDisplay();
+  
   // Hide complete button, show cancel button
   document.getElementById('scan-all-complete').style.display = 'none';
   document.getElementById('cancel-scan-all').style.display = 'inline-block';
@@ -131,20 +135,25 @@ async function processScanQueue() {
     // Update UI
     document.getElementById('scan-progress-current').textContent = `Currently scanning: ${casket.casketName}`;
     updateScanAllProgress();
+    highlightCurrentUnit(casket.casketId);
     
     try {
-      // Start the deep check
-      const result = await performDeepCheck(casket.casketId, casket.casketName);
+      // Start the deep check with suppressModal = true
+      const result = await performDeepCheck(casket.casketId, casket.casketName, true);
       
-      // Store result
+      // Store result with items detail
       scanAllState.results.push({
         casketId: casket.casketId,
         casketName: casket.casketName,
         success: result.success,
         itemsFound: result.newlyAddedItems ? result.newlyAddedItems.length : 0,
+        items: result.newlyAddedItems || [],
         error: result.error,
         timeMs: result.totalTimeMs
       });
+      
+      // Mark unit as complete
+      markUnitComplete(casket.casketId);
       
     } catch (error) {
       logger.error(`Error scanning ${casket.casketName}:`, error);
@@ -153,9 +162,13 @@ async function processScanQueue() {
         casketName: casket.casketName,
         success: false,
         itemsFound: 0,
+        items: [],
         error: error.message,
         timeMs: 0
       });
+      
+      // Mark unit as failed
+      markUnitFailed(casket.casketId);
     }
     
     scanAllState.currentIndex++;
@@ -172,23 +185,41 @@ async function processScanQueue() {
 }
 
 // Modified deep check function that returns a promise
-function performDeepCheck(casketId, casketName) {
+function performDeepCheck(casketId, casketName, suppressModal = false) {
   return new Promise((resolve) => {
-    // Store the original handler
-    const originalHandler = window.electronAPI.onDeepCheckResult;
+    let originalProgressHandler = null;
     
     // Create a one-time handler for this specific scan
     const onceHandler = (data) => {
-      // Restore original handler
-      window.electronAPI.onDeepCheckResult(originalHandler);
-      resolve(data);
+      // Restore original progress handler if we changed it
+      if (originalProgressHandler && suppressModal) {
+        window.electronAPI.onDeepCheckProgress(originalProgressHandler);
+      }
+      
+      // If we're in batch mode, don't show individual modals
+      if (suppressModal) {
+        // Just resolve with the data without showing modal
+        resolve(data);
+      } else {
+        // Normal single scan - show the modal
+        handleDeepCheckResult(data);
+        resolve(data);
+      }
     };
+    
+    // Update progress handler for batch mode
+    if (suppressModal) {
+      originalProgressHandler = window.electronAPI.onDeepCheckProgress;
+      window.electronAPI.onDeepCheckProgress((data) => {
+        // Update the individual storage unit progress
+        updateIndividualUnitProgress(casketId, data.progress);
+      });
+    }
     
     // Set our one-time handler
     window.electronAPI.onDeepCheckResult(onceHandler);
     
     // Start the deep check
-    logger.log(`Starting deep check on storage unit: ${casketName} (${casketId})`);
     window.electronAPI.deepCheckCasket(casketId);
   });
 }
@@ -206,7 +237,80 @@ function updateScanAllProgress() {
   }
 }
 
-// Finish scan all process
+
+
+
+
+function createUnitProgressDisplay() {
+  const modalBody = document.querySelector('#scan-all-modal .modal-body');
+  
+  // Create container for unit progress
+  let unitProgressContainer = document.getElementById('unit-progress-container');
+  if (!unitProgressContainer) {
+    unitProgressContainer = document.createElement('div');
+    unitProgressContainer.id = 'unit-progress-container';
+    unitProgressContainer.className = 'unit-progress-container';
+    modalBody.appendChild(unitProgressContainer);
+  }
+  
+  // Clear and populate with storage units
+  unitProgressContainer.innerHTML = '<h4>Storage Units:</h4>';
+  
+  scanAllState.caskets.forEach((casket, index) => {
+    const unitProgress = document.createElement('div');
+    unitProgress.className = 'unit-progress-item';
+    unitProgress.id = `unit-progress-${casket.casketId}`;
+    
+    unitProgress.innerHTML = `
+      <div class="unit-progress-header">
+        <span class="unit-name">${casket.casketName}</span>
+        <span class="unit-status" id="unit-status-${casket.casketId}">Waiting...</span>
+      </div>
+      <div class="unit-progress-bar-container">
+        <div class="unit-progress-bar" id="unit-bar-${casket.casketId}"></div>
+      </div>
+    `;
+    
+    unitProgressContainer.appendChild(unitProgress);
+  });
+}
+
+
+
+function updateIndividualUnitProgress(casketId, progress) {
+  const progressBar = document.getElementById(`unit-bar-${casketId}`);
+  if (progressBar) {
+    progressBar.style.width = `${progress}%`;
+  }
+}
+
+// Mark unit as complete
+function markUnitComplete(casketId) {
+  const unit = document.getElementById(`unit-progress-${casketId}`);
+  if (unit) {
+    unit.classList.remove('scanning');
+    unit.classList.add('complete');
+  }
+  
+  const status = document.getElementById(`unit-status-${casketId}`);
+  if (status) status.textContent = 'Complete';
+  
+  const progressBar = document.getElementById(`unit-bar-${casketId}`);
+  if (progressBar) progressBar.style.width = '100%';
+}
+
+// Mark unit as failed
+function markUnitFailed(casketId) {
+  const unit = document.getElementById(`unit-progress-${casketId}`);
+  if (unit) {
+    unit.classList.remove('scanning');
+    unit.classList.add('failed');
+  }
+  
+  const status = document.getElementById(`unit-status-${casketId}`);
+  if (status) status.textContent = 'Failed';
+}
+
 function finishScanAll() {
   scanAllState.isScanning = false;
   const totalTime = Date.now() - scanAllState.startTime;
@@ -216,7 +320,33 @@ function finishScanAll() {
   const totalItemsFound = scanAllState.results.reduce((sum, r) => sum + r.itemsFound, 0);
   const failedScans = scanAllState.results.filter(r => !r.success);
   
-  // Update modal
+  // Combine all items from all storage units
+  const allItems = [];
+  scanAllState.results.forEach(result => {
+    if (result.items && result.items.length > 0) {
+      result.items.forEach(item => {
+        allItems.push({
+          ...item,
+          storageUnit: result.casketName
+        });
+      });
+    }
+  });
+  
+  // Group combined items by name
+  const groupedItems = {};
+  allItems.forEach((item) => {
+    const name = item.market_hash_name || `Item ID: ${item.assetid}`;
+    if (!groupedItems[name]) {
+      groupedItems[name] = { count: 0, icon: item.icon_url, units: new Set() };
+    }
+    groupedItems[name].count++;
+    groupedItems[name].units.add(item.storageUnit);
+  });
+  
+  const sortedItems = Object.entries(groupedItems).sort((a, b) => b[1].count - a[1].count);
+  
+  // Update modal with final results
   document.getElementById('scan-all-status').innerHTML = `
     <div class="scan-summary">
       <h3>Scan Complete!</h3>
@@ -246,6 +376,23 @@ function finishScanAll() {
           </ul>
         </div>
       ` : ''}
+      ${totalItemsFound > 0 ? `
+        <div class="scan-items-summary">
+          <h4>Items Found:</h4>
+          <ul class="scan-result-list compact">
+            ${sortedItems.slice(0, 10).map(([name, info]) => `
+              <li class="scan-result-item compact">
+                <img src="https://steamcommunity-a.akamaihd.net/economy/image/${info.icon}" alt="${name}">
+                <div class="scan-result-item-info">
+                  <div class="scan-result-item-name">${name}</div>
+                  <div class="scan-result-item-count">Quantity: ${info.count} (found in ${info.units.size} unit${info.units.size > 1 ? 's' : ''})</div>
+                </div>
+              </li>
+            `).join('')}
+          </ul>
+          ${sortedItems.length > 10 ? `<p class="more-items">...and ${sortedItems.length - 10} more item types</p>` : ''}
+        </div>
+      ` : ''}
     </div>
   `;
   
@@ -256,8 +403,10 @@ function finishScanAll() {
   // Show toast notification
   if (scanAllState.cancelled) {
     toast.warning(`Scan cancelled. Completed ${scanAllState.currentIndex} of ${scanAllState.totalUnits} units`);
-  } else {
+  } else if (totalItemsFound > 0) {
     toast.success(`All storage units scanned successfully! Found ${totalItemsFound} items`);
+  } else {
+    toast.warning(`Scan complete. No new items found in storage units.`);
   }
 }
 
@@ -266,58 +415,31 @@ function cancelScanAll() {
   if (scanAllState.isScanning) {
     scanAllState.cancelled = true;
     toast.warning('Cancelling scan...');
+  } else {
+    // If not scanning, just close the modal
+    hideModal('scan-all-modal');
   }
 }
 
-// Modify renderStorageUnits to store caskets and show scan all button
-function renderStorageUnits(caskets) {
-  // Store caskets in scan state
-  scanAllState.caskets = caskets || [];
-  
-  elements.storageGrid.innerHTML = '';
-  
-  // Show/hide scan all button based on caskets availability
-  const scanAllButton = document.getElementById('scan-all-button');
-  if (scanAllButton) {
-    scanAllButton.style.display = caskets && caskets.length > 1 ? 'inline-flex' : 'none';
-  }
-  
-  if (!caskets || caskets.length === 0) {
-    elements.storageGrid.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-state-text">No storage units found</div>
-        <p>You don't have any storage units in your inventory.</p>
-      </div>
-    `;
-    return;
-  }
-  
-  caskets.forEach((casket) => {
-    const unitDiv = document.createElement('div');
-    unitDiv.className = 'storage-unit';
-    
-    const unitIconUrl = "https://steamcommunity-a.akamaihd.net/economy/image/" +
-      "-9a81dlWLwJ2UUGcVs_nsVtzdOEdtWwKGZZLQHTxDZ7I56KU0Zwwo4NUX4oFJZEHLbXX7gNTPcUxqAhWSVieFOX71szWCgwsdlZRsuz0L1M1iqrOIGUauNiyzdmKxKWsMrnXkjlQsIthhO5eh9dfdg";
-    
-    unitDiv.onclick = () => {
-      if (!scanAllState.isScanning) {
-        startDeepCheck(casket.casketId, casket.casketName, unitDiv);
-      } else {
-        toast.warning('Please wait for the current scan to complete');
-      }
-    };
-    
-    unitDiv.innerHTML = `
-      <img src="${unitIconUrl}" alt="${casket.casketName}">
-      <div class="storage-name">${casket.casketName}</div>
-      <div class="storage-items">Contains ${casket.itemCount} item(s)</div>
-    `;
-    
-    elements.storageGrid.appendChild(unitDiv);
+
+
+
+function highlightCurrentUnit(casketId) {
+  // Remove highlight from all units
+  document.querySelectorAll('.unit-progress-item').forEach(item => {
+    item.classList.remove('scanning');
   });
+  
+  // Add highlight to current unit
+  const currentUnit = document.getElementById(`unit-progress-${casketId}`);
+  if (currentUnit) {
+    currentUnit.classList.add('scanning');
+    const status = document.getElementById(`unit-status-${casketId}`);
+    if (status) status.textContent = 'Scanning...';
+  }
 }
 
-// Add event listeners in setupEventListeners function
+
 function addScanAllEventListeners() {
   // Scan all button
   const scanAllButton = document.getElementById('scan-all-button');
@@ -332,6 +454,17 @@ function addScanAllEventListeners() {
   document.getElementById('scan-all-complete').addEventListener('click', () => {
     hideModal('scan-all-modal');
   });
+  
+  // Prevent modal dismissal during scanning
+  const scanAllModal = document.getElementById('scan-all-modal');
+  if (scanAllModal) {
+    scanAllModal.addEventListener('click', (e) => {
+      if (e.target === scanAllModal && scanAllState.isScanning) {
+        e.stopPropagation();
+        toast.warning('Please wait for the scan to complete or click Cancel');
+      }
+    });
+  }
 }
 
 // Call this in your main setupEventListeners function
@@ -783,8 +916,18 @@ function submitDevice2FACode() {
 }
 
 // Storage units rendering
+// Modify renderStorageUnits to store caskets and show scan all button
 function renderStorageUnits(caskets) {
+  // Store caskets in scan state
+  scanAllState.caskets = caskets || [];
+  
   elements.storageGrid.innerHTML = '';
+  
+  // Show/hide scan all button based on caskets availability
+  const scanAllButton = document.getElementById('scan-all-button');
+  if (scanAllButton) {
+    scanAllButton.style.display = caskets && caskets.length > 1 ? 'inline-flex' : 'none';
+  }
   
   if (!caskets || caskets.length === 0) {
     elements.storageGrid.innerHTML = `
@@ -800,12 +943,15 @@ function renderStorageUnits(caskets) {
     const unitDiv = document.createElement('div');
     unitDiv.className = 'storage-unit';
     
-    // Default CS:GO storage unit icon
     const unitIconUrl = "https://steamcommunity-a.akamaihd.net/economy/image/" +
       "-9a81dlWLwJ2UUGcVs_nsVtzdOEdtWwKGZZLQHTxDZ7I56KU0Zwwo4NUX4oFJZEHLbXX7gNTPcUxqAhWSVieFOX71szWCgwsdlZRsuz0L1M1iqrOIGUauNiyzdmKxKWsMrnXkjlQsIthhO5eh9dfdg";
     
     unitDiv.onclick = () => {
-      startDeepCheck(casket.casketId, casket.casketName, unitDiv);
+      if (!scanAllState.isScanning) {
+        startDeepCheck(casket.casketId, casket.casketName, unitDiv);
+      } else {
+        toast.warning('Please wait for the current scan to complete');
+      }
     };
     
     unitDiv.innerHTML = `
@@ -955,11 +1101,18 @@ function setupEventListeners() {
   document.querySelectorAll('.modal-overlay').forEach(modal => {
     modal.addEventListener('click', (e) => {
       if (e.target === modal && modal.id !== 'device-2fa-modal') {
+        // Special handling for scan-all modal
+        if (modal.id === 'scan-all-modal' && scanAllState.isScanning) {
+          e.stopPropagation();
+          toast.warning('Please wait for the scan to complete or click Cancel');
+          return;
+        }
         hideModal(modal.id);
       }
     });
   });
-  
+
+
   // Steam Guard submit button
   document.getElementById('steam-guard-submit').addEventListener('click', submitSteamGuardCode);
   
