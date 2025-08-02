@@ -1,6 +1,9 @@
 // renderer.js - Main UI logic for CS-Assets Storage Scanner
 
 // DOM Elements
+
+
+
 const elements = {
   // Views
   loginView: document.getElementById('login-view'),
@@ -58,6 +61,9 @@ const appState = {
 
 
 
+
+
+
 // Update-related state
 const updateState = {
   updateAvailable: false,
@@ -65,6 +71,274 @@ const updateState = {
   downloaded: false,
   currentVersion: null
 };
+
+
+
+
+
+
+// Add this to renderer.js - Global state for scan all functionality
+const scanAllState = {
+  isScanning: false,
+  cancelled: false,
+  currentIndex: 0,
+  totalUnits: 0,
+  caskets: [],
+  results: [],
+  startTime: null
+};
+
+// Function to scan all storage units
+async function scanAllStorageUnits() {
+  // Prevent multiple scans
+  if (scanAllState.isScanning) {
+    toast.warning('A scan is already in progress');
+    return;
+  }
+  
+  // Get all storage units
+  const storageUnits = document.querySelectorAll('.storage-unit');
+  if (storageUnits.length === 0) {
+    toast.warning('No storage units found');
+    return;
+  }
+  
+  // Initialize scan state
+  scanAllState.isScanning = true;
+  scanAllState.cancelled = false;
+  scanAllState.currentIndex = 0;
+  scanAllState.totalUnits = scanAllState.caskets.length;
+  scanAllState.results = [];
+  scanAllState.startTime = Date.now();
+  
+  // Show modal
+  showModal('scan-all-modal');
+  updateScanAllProgress();
+  
+  // Hide complete button, show cancel button
+  document.getElementById('scan-all-complete').style.display = 'none';
+  document.getElementById('cancel-scan-all').style.display = 'inline-block';
+  
+  // Start scanning
+  await processScanQueue();
+}
+
+// Process the scan queue
+async function processScanQueue() {
+  while (scanAllState.currentIndex < scanAllState.totalUnits && !scanAllState.cancelled) {
+    const casket = scanAllState.caskets[scanAllState.currentIndex];
+    
+    // Update UI
+    document.getElementById('scan-progress-current').textContent = `Currently scanning: ${casket.casketName}`;
+    updateScanAllProgress();
+    
+    try {
+      // Start the deep check
+      const result = await performDeepCheck(casket.casketId, casket.casketName);
+      
+      // Store result
+      scanAllState.results.push({
+        casketId: casket.casketId,
+        casketName: casket.casketName,
+        success: result.success,
+        itemsFound: result.newlyAddedItems ? result.newlyAddedItems.length : 0,
+        error: result.error,
+        timeMs: result.totalTimeMs
+      });
+      
+    } catch (error) {
+      logger.error(`Error scanning ${casket.casketName}:`, error);
+      scanAllState.results.push({
+        casketId: casket.casketId,
+        casketName: casket.casketName,
+        success: false,
+        itemsFound: 0,
+        error: error.message,
+        timeMs: 0
+      });
+    }
+    
+    scanAllState.currentIndex++;
+    updateScanAllProgress();
+    
+    // Small delay between scans to prevent overwhelming the system
+    if (scanAllState.currentIndex < scanAllState.totalUnits && !scanAllState.cancelled) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  
+  // Scan complete
+  finishScanAll();
+}
+
+// Modified deep check function that returns a promise
+function performDeepCheck(casketId, casketName) {
+  return new Promise((resolve) => {
+    // Store the original handler
+    const originalHandler = window.electronAPI.onDeepCheckResult;
+    
+    // Create a one-time handler for this specific scan
+    const onceHandler = (data) => {
+      // Restore original handler
+      window.electronAPI.onDeepCheckResult(originalHandler);
+      resolve(data);
+    };
+    
+    // Set our one-time handler
+    window.electronAPI.onDeepCheckResult(onceHandler);
+    
+    // Start the deep check
+    logger.log(`Starting deep check on storage unit: ${casketName} (${casketId})`);
+    window.electronAPI.deepCheckCasket(casketId);
+  });
+}
+
+// Update progress UI
+function updateScanAllProgress() {
+  const progress = (scanAllState.currentIndex / scanAllState.totalUnits) * 100;
+  document.getElementById('scan-all-progress-bar').style.width = `${progress}%`;
+  document.getElementById('scan-progress-count').textContent = 
+    `${scanAllState.currentIndex} of ${scanAllState.totalUnits} units scanned`;
+  
+  if (scanAllState.currentIndex === scanAllState.totalUnits) {
+    document.getElementById('scan-all-status').textContent = 'Scan complete!';
+    document.getElementById('scan-progress-current').textContent = 'All units scanned';
+  }
+}
+
+// Finish scan all process
+function finishScanAll() {
+  scanAllState.isScanning = false;
+  const totalTime = Date.now() - scanAllState.startTime;
+  
+  // Calculate totals
+  const successfulScans = scanAllState.results.filter(r => r.success).length;
+  const totalItemsFound = scanAllState.results.reduce((sum, r) => sum + r.itemsFound, 0);
+  const failedScans = scanAllState.results.filter(r => !r.success);
+  
+  // Update modal
+  document.getElementById('scan-all-status').innerHTML = `
+    <div class="scan-summary">
+      <h3>Scan Complete!</h3>
+      <div class="scan-stats">
+        <div class="scan-stat">
+          <span class="scan-stat-label">Total Units Scanned:</span>
+          <span class="scan-stat-value">${scanAllState.totalUnits}</span>
+        </div>
+        <div class="scan-stat">
+          <span class="scan-stat-label">Successful Scans:</span>
+          <span class="scan-stat-value">${successfulScans}</span>
+        </div>
+        <div class="scan-stat">
+          <span class="scan-stat-label">Total Items Found:</span>
+          <span class="scan-stat-value">${totalItemsFound}</span>
+        </div>
+        <div class="scan-stat">
+          <span class="scan-stat-label">Total Time:</span>
+          <span class="scan-stat-value">${Math.round(totalTime / 1000)} seconds</span>
+        </div>
+      </div>
+      ${failedScans.length > 0 ? `
+        <div class="scan-failures">
+          <h4>Failed Scans:</h4>
+          <ul>
+            ${failedScans.map(f => `<li>${f.casketName}: ${f.error}</li>`).join('')}
+          </ul>
+        </div>
+      ` : ''}
+    </div>
+  `;
+  
+  // Show complete button, hide cancel button
+  document.getElementById('scan-all-complete').style.display = 'inline-block';
+  document.getElementById('cancel-scan-all').style.display = 'none';
+  
+  // Show toast notification
+  if (scanAllState.cancelled) {
+    toast.warning(`Scan cancelled. Completed ${scanAllState.currentIndex} of ${scanAllState.totalUnits} units`);
+  } else {
+    toast.success(`All storage units scanned successfully! Found ${totalItemsFound} items`);
+  }
+}
+
+// Cancel scan all
+function cancelScanAll() {
+  if (scanAllState.isScanning) {
+    scanAllState.cancelled = true;
+    toast.warning('Cancelling scan...');
+  }
+}
+
+// Modify renderStorageUnits to store caskets and show scan all button
+function renderStorageUnits(caskets) {
+  // Store caskets in scan state
+  scanAllState.caskets = caskets || [];
+  
+  elements.storageGrid.innerHTML = '';
+  
+  // Show/hide scan all button based on caskets availability
+  const scanAllButton = document.getElementById('scan-all-button');
+  if (scanAllButton) {
+    scanAllButton.style.display = caskets && caskets.length > 1 ? 'inline-flex' : 'none';
+  }
+  
+  if (!caskets || caskets.length === 0) {
+    elements.storageGrid.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-text">No storage units found</div>
+        <p>You don't have any storage units in your inventory.</p>
+      </div>
+    `;
+    return;
+  }
+  
+  caskets.forEach((casket) => {
+    const unitDiv = document.createElement('div');
+    unitDiv.className = 'storage-unit';
+    
+    const unitIconUrl = "https://steamcommunity-a.akamaihd.net/economy/image/" +
+      "-9a81dlWLwJ2UUGcVs_nsVtzdOEdtWwKGZZLQHTxDZ7I56KU0Zwwo4NUX4oFJZEHLbXX7gNTPcUxqAhWSVieFOX71szWCgwsdlZRsuz0L1M1iqrOIGUauNiyzdmKxKWsMrnXkjlQsIthhO5eh9dfdg";
+    
+    unitDiv.onclick = () => {
+      if (!scanAllState.isScanning) {
+        startDeepCheck(casket.casketId, casket.casketName, unitDiv);
+      } else {
+        toast.warning('Please wait for the current scan to complete');
+      }
+    };
+    
+    unitDiv.innerHTML = `
+      <img src="${unitIconUrl}" alt="${casket.casketName}">
+      <div class="storage-name">${casket.casketName}</div>
+      <div class="storage-items">Contains ${casket.itemCount} item(s)</div>
+    `;
+    
+    elements.storageGrid.appendChild(unitDiv);
+  });
+}
+
+// Add event listeners in setupEventListeners function
+function addScanAllEventListeners() {
+  // Scan all button
+  const scanAllButton = document.getElementById('scan-all-button');
+  if (scanAllButton) {
+    scanAllButton.addEventListener('click', scanAllStorageUnits);
+  }
+  
+  // Cancel button
+  document.getElementById('cancel-scan-all').addEventListener('click', cancelScanAll);
+  
+  // Complete button (close modal)
+  document.getElementById('scan-all-complete').addEventListener('click', () => {
+    hideModal('scan-all-modal');
+  });
+}
+
+// Call this in your main setupEventListeners function
+// addScanAllEventListeners();
+
+
+
 
 
 // Toast notification system
@@ -658,6 +932,9 @@ function setupEventListeners() {
   if (elements.loginForm) {
     elements.loginForm.addEventListener('submit', handleLogin);
   }
+
+
+  addScanAllEventListeners();
   
   // Login button
   document.getElementById('login-button').addEventListener('click', handleLogin);
@@ -709,6 +986,10 @@ function setupEventListeners() {
     hideModal('warning-modal');
   });
   
+
+
+
+
   // Move items buttons
   document.getElementById('move-items-yes').addEventListener('click', moveItemsFromStorage);
   document.getElementById('move-items-no').addEventListener('click', () => {

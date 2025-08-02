@@ -1090,3 +1090,125 @@ p {
 
 
 
+/* Add these styles to your styles.css file */
+
+/* Storage Actions Container */
+.storage-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-6);
+}
+
+.storage-actions h1 {
+  margin-bottom: 0;
+}
+
+/* Scan Progress Info */
+.scan-progress-info {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: var(--neutral-800);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.scan-progress-current {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-2);
+}
+
+.scan-progress-count {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Scan Summary */
+.scan-summary {
+  text-align: left;
+}
+
+.scan-summary h3 {
+  color: var(--success);
+  margin-bottom: var(--space-4);
+  text-align: center;
+}
+
+.scan-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  background: var(--neutral-800);
+  border-radius: var(--radius-sm);
+}
+
+.scan-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.scan-stat-label {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.scan-stat-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.scan-failures {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-sm);
+}
+
+.scan-failures h4 {
+  color: var(--danger);
+  margin-bottom: var(--space-2);
+}
+
+.scan-failures ul {
+  list-style: none;
+  padding: 0;
+}
+
+.scan-failures li {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-1);
+}
+
+/* Scan All Button Special Styling */
+#scan-all-button {
+  background: linear-gradient(135deg, var(--primary-600), var(--primary-700));
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+#scan-all-button:hover {
+  background: linear-gradient(135deg, var(--primary-700), var(--primary-800));
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .storage-actions {
+    flex-direction: column;
+    gap: var(--space-4);
+    text-align: center;
+  }
+  
+  .scan-stats {
+    grid-template-columns: 1fr;
+  }
+}
