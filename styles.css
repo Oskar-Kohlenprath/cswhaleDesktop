@@ -642,6 +642,23 @@ p {
   animation: spin 1s linear infinite;
 }
 
+
+
+.loading-unit-icon {
+  width: 124px;
+  height: 102px;
+  margin-bottom: var(--space-4);
+  display: none;
+}
+
+.loading-unit-name {
+  font-size: 1rem;
+  color: var(--text-primary);
+  margin-bottom: var(--space-4);
+  display: none;
+}
+
+
 .progress-container {
   width: 320px;
   height: 6px;

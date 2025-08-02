@@ -23,6 +23,9 @@ const elements = {
   
   // Loading indicator
   loadingIndicator: document.getElementById('loading-indicator'),
+  loadingSpinner: document.getElementById('loading-spinner'),
+  loadingUnitIcon: document.getElementById('loading-unit-icon'),
+  loadingUnitName: document.getElementById('loading-unit-name'),
   progressBar: document.getElementById('progress-bar'),
   progressText: document.getElementById('progress-text'),
   
@@ -48,6 +51,7 @@ const elements = {
 const appState = {
   currentUser: null,
   currentCasketName: '',
+  currentCasketIcon: '',
   inventoryNeedsPayload: null,
   isLoading: false
 };
@@ -303,31 +307,42 @@ function handleUpdateDownloaded(info) {
 
 
 
-
 // Loading indicator functions
 function showLoading(withProgress = false) {
   appState.isLoading = true;
   elements.loadingIndicator.style.display = 'flex';
-  
+
   if (withProgress) {
     elements.progressBar.style.width = '0%';
-    elements.progressText.textContent = '0%';
+    elements.progressText.textContent = 'Scanning... 0%';
     elements.progressBar.parentElement.style.display = 'block';
+    elements.loadingSpinner.style.display = 'none';
+    elements.loadingUnitIcon.src = appState.currentCasketIcon;
+    elements.loadingUnitIcon.style.display = 'block';
+    elements.loadingUnitName.textContent = appState.currentCasketName;
+    elements.loadingUnitName.style.display = 'block';
   } else {
     elements.progressBar.parentElement.style.display = 'none';
+    elements.progressText.textContent = 'Loading...';
+    elements.loadingSpinner.style.display = 'block';
+    elements.loadingUnitIcon.style.display = 'none';
+    elements.loadingUnitName.style.display = 'none';
   }
 }
 
 function hideLoading() {
   appState.isLoading = false;
   elements.loadingIndicator.style.display = 'none';
+  elements.loadingSpinner.style.display = 'block';
+  elements.loadingUnitIcon.style.display = 'none';
+  elements.loadingUnitName.style.display = 'none';
 }
 
 function updateLoadingProgress(progress, current, total) {
   if (!appState.isLoading) return;
-  
+
   elements.progressBar.style.width = `${progress}%`;
-  elements.progressText.textContent = `${progress}%`;  // Just show percentage
+  elements.progressText.textContent = `Scanning... ${progress}%`;
 }
 
 // Modal management
@@ -532,6 +547,7 @@ function renderStorageUnits(caskets) {
 // Deep check functionality
 function startDeepCheck(casketId, casketName, unitElement) {
   appState.currentCasketName = casketName;
+  appState.currentCasketIcon = unitElement ? unitElement.querySelector('img').src : '';
   
   // Disable the element to prevent multiple clicks
   if (unitElement) {
@@ -573,7 +589,7 @@ function handleDeepCheckResult(data) {
   
   // Update scan result modal content
   elements.scanResultTitle.textContent = `Successfully scanned "${appState.currentCasketName}"`;
-  elements.scanResultSummary.textContent = `${totalItems} new item(s) detected. Scan took ${Math.round(data.totalTimeMs / 1000)} seconds.`;
+  elements.scanResultSummary.textContent = `${totalItems} new items detected. You can now sell them on cswhale.com !`;
   elements.scanResultList.innerHTML = '';
   
   const baseIconUrl = "https://steamcommunity-a.akamaihd.net/economy/image/";

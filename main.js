@@ -113,6 +113,11 @@ class Logger {
     } else {
       console.log(formattedMessage);
     }
+
+
+    if (typeof message === 'string') {
+        message = message.replace(/device_token=[\w-]+/g, 'device_token=[REDACTED]');
+    }
     
     // Log to file
     if (logStream) {
