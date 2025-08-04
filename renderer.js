@@ -48,6 +48,8 @@ const elements = {
   inventoryFullModal: document.getElementById('inventory-full-modal'),
   moveItemsModal: document.getElementById('move-items-modal'),
   moveItemsText: document.getElementById('move-items-text')
+
+
 };
 
 // Global state
@@ -1263,7 +1265,48 @@ function setupIPCHandlers() {
   window.electronAPI.onInventoryNeeds((data) => {
     handleInventoryNeeds(data);
   });
+
+
+
+
+  window.electronAPI.onDeviceTokenExpired(() => {
+    logger.warn('Device token has expired');
+    
+    // Show a modal or toast notification
+    showModal('device-reauth-modal');
+  });
+
+
+
 }
+
+
+async function handleDeviceReauth() {
+  try {
+    showLoading();
+    const result = await window.electronAPI.refreshDeviceToken();
+    
+    if (result.success) {
+      hideLoading();
+      hideModal('device-reauth-modal');
+      toast.success('Authentication refreshed successfully');
+      
+      // Refresh the current view
+      if (elements.dashboardView.style.display !== 'none') {
+        window.electronAPI.fetchStorage();
+      }
+    } else {
+      hideLoading();
+      toast.error('Failed to refresh authentication: ' + result.error);
+    }
+  } catch (error) {
+    hideLoading();
+    logger.error('Device re-authentication failed', error);
+    toast.error('Authentication failed. Please log in again.');
+    showView('login');
+  }
+}
+
 
 // Initialize app
 function initApp() {

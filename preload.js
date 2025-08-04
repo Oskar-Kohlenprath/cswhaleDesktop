@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onInventoryNeeds: (callback) => ipcRenderer.on('inventory-needs', (_e,data) => callback(data)),
   moveItemsFromStorage: (payload) => ipcRenderer.invoke('move-items-from-storage', payload),
 
+  onDeviceTokenExpired: (callback) => ipcRenderer.on('device-token-expired', callback),
+  refreshDeviceToken: () => ipcRenderer.invoke('refresh-device-token'),
 
 
 

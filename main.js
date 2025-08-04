@@ -73,6 +73,39 @@ async function ensureValidDeviceToken() {
 
 
 
+
+async function ensureValidDeviceTokenEnhanced() {
+  const token = await getDeviceToken();
+  if (!token) {
+    // If no token during active session, try to get one
+    if (user && user.steamID) {
+      const steamId = user.steamID.getSteamID64();
+      return await ensureDeviceToken(steamId);
+    }
+    throw new Error("No device token and no active session");
+  }
+  
+  // Validate token by making a simple API call
+  try {
+    const testUrl = `${API_BASE_URL}/desktop_steam_accounts`;
+    await axios.post(testUrl, { device_token: token }, { timeout: 5000 });
+    return token;
+  } catch (error) {
+    if (error.response && error.response.status === 401) {
+      logger.info('Stored device token is invalid, clearing and getting new one...');
+      await keytar.deletePassword(SERVICE_NAME, DEVICE_TOKEN_KEY);
+      
+      if (user && user.steamID) {
+        const steamId = user.steamID.getSteamID64();
+        return await ensureDeviceToken(steamId);
+      }
+      throw new Error("Invalid token and no active session");
+    }
+    throw error;
+  }
+}
+
+
 /**
  * Enhanced logger with file logging and console output
  */
@@ -158,6 +191,75 @@ class Logger {
 }
 
 const logger = new Logger();
+
+
+
+
+
+
+
+
+
+
+/**
+ * Wrapper for API calls that handles device token validation
+ * Automatically initiates 2FA flow if token is invalid
+ * @param {Function} apiCall - The API call function to wrap
+ * @param {any[]} args - Arguments to pass to the API call
+ * @returns {Promise<any>} Result of the API call
+ */
+async function withDeviceTokenRetry(apiCall, ...args) {
+  try {
+    // First attempt with existing token
+    return await apiCall(...args);
+  } catch (error) {
+    // Check if it's a 401 with invalid device token
+    if (error.response && error.response.status === 401) {
+      const errorData = error.response.data;
+      if (errorData && (errorData.error === 'Invalid device token' || errorData.error === 'Device token required')) {
+        logger.info('Device token invalid or missing, initiating 2FA flow...');
+        
+        // Clear the invalid token from keytar
+        await keytar.deletePassword(SERVICE_NAME, DEVICE_TOKEN_KEY);
+        
+        // Get current steam ID if available
+        let steamId = null;
+        if (user && user.steamID) {
+          steamId = user.steamID.getSteamID64();
+        } else {
+          // Try to get from the first available account
+          const accounts = await getAllAccounts();
+          if (accounts.length > 0) {
+            steamId = accounts[0].steamId;
+          }
+        }
+        
+        if (!steamId) {
+          throw new Error('No Steam account available for 2FA');
+        }
+        
+        // Initiate 2FA flow
+        const newToken = await ensureDeviceToken(steamId);
+        logger.info('New device token obtained, retrying API call...');
+        
+        // Retry the original API call
+        return await apiCall(...args);
+      }
+    }
+    // Re-throw if it's not a token issue
+    throw error;
+  }
+}
+
+
+
+
+
+
+
+
+
+
 
 /**
  * Create the main application window
@@ -250,14 +352,19 @@ app.whenReady().then(async () => {
   // Validate tokens
   await validateAllStoredTokens();
 
-  // Fetch accounts if device token exists
+  // Fetch accounts with automatic token refresh if needed
   try {
     const deviceToken = await keytar.getPassword(SERVICE_NAME, DEVICE_TOKEN_KEY);
     if (deviceToken) {
-      await fetchAndUpdateAccountsFromFlask(deviceToken);
+      // Use the enhanced version that handles invalid tokens
+      await fetchAndUpdateAccountsFromFlaskEnhanced(deviceToken);
     }
   } catch (err) {
     logger.error("Error fetching accounts on startup", err);
+    // If it's a token issue and we have a window, show a message
+    if (mainWindow && !mainWindow.isDestroyed() && err.message.includes('token')) {
+      mainWindow.webContents.send('device-token-expired');
+    }
   }
 });
 
@@ -343,6 +450,30 @@ ipcMain.handle('download-update', async () => {
   }
 });
 
+
+// Add IPC handler for device token expiry notification
+ipcMain.handle('refresh-device-token', async () => {
+  try {
+    if (user && user.steamID) {
+      const steamId = user.steamID.getSteamID64();
+      const newToken = await ensureDeviceToken(steamId);
+      return { success: true, token: newToken };
+    } else {
+      // Get from first available account
+      const accounts = await getAllAccounts();
+      if (accounts.length > 0) {
+        const newToken = await ensureDeviceToken(accounts[0].steamId);
+        return { success: true, token: newToken };
+      }
+    }
+    return { success: false, error: 'No Steam account available' };
+  } catch (error) {
+    logger.error('Failed to refresh device token', error);
+    return { success: false, error: error.message };
+  }
+});
+
+
 ipcMain.handle('install-update', async () => {
   autoUpdater.quitAndInstall();
 });
@@ -374,55 +505,47 @@ ipcMain.handle('check-for-updates', async () => {
  * @param {string} deviceToken - The device token for authentication
  * @returns {Array} Updated accounts list
  */
-async function fetchAndUpdateAccountsFromFlask(deviceToken) {
-  try {
+// Updated fetchAndUpdateAccountsFromFlask with token retry
+async function fetchAndUpdateAccountsFromFlaskEnhanced(deviceToken) {
+  const apiCall = async (token) => {
     const serverUrl = `${API_BASE_URL}/desktop_steam_accounts`;
-    const resp = await axios.post(serverUrl, { device_token: deviceToken });
-    const steamAccounts = resp.data.steam_accounts || [];
-    logger.info(`Flask returned ${steamAccounts.length} steam accounts.`);
+    const resp = await axios.post(serverUrl, { device_token: token || deviceToken });
+    return resp;
+  };
+  
+  const resp = await withDeviceTokenRetry(apiCall, deviceToken);
+  const steamAccounts = resp.data.steam_accounts || [];
+  logger.info(`Flask returned ${steamAccounts.length} steam accounts.`);
 
-    // Load current accounts
-    const existingAccounts = await loadAccountsJSON();
-    const updatedAccounts = [...existingAccounts];
+  // Rest of the function remains the same...
+  const existingAccounts = await loadAccountsJSON();
+  const updatedAccounts = [...existingAccounts];
 
-    // Process accounts from Flask API
-    for (const flaskAccount of steamAccounts) {
-      const steamId = flaskAccount.steam_id;
-      const displayName = flaskAccount.persona_name || steamId;
-      const avatarUrl = flaskAccount.avatar_url || "static/images/default-avatar.png";
+  for (const flaskAccount of steamAccounts) {
+    const steamId = flaskAccount.steam_id;
+    const displayName = flaskAccount.persona_name || steamId;
+    const avatarUrl = flaskAccount.avatar_url || "static/images/default-avatar.png";
 
-      // Check if this account already exists
-      const existingIdx = existingAccounts.findIndex(
-        (a) => a.steamId === steamId
-      );
+    const existingIdx = existingAccounts.findIndex(a => a.steamId === steamId);
 
-      if (existingIdx >= 0) {
-        // Update existing account
-        updatedAccounts[existingIdx].displayName = displayName;
-        updatedAccounts[existingIdx].avatarUrl = avatarUrl;
-        updatedAccounts[existingIdx].isRegistered = true;
-        // Keep existing refreshToken if it exists
-      } else {
-        // Add new account from Flask with no refresh token
-        updatedAccounts.push({
-          steamId,
-          displayName,
-          avatarUrl,
-          refreshToken: "",
-          isRegistered: true,
-          lastUsed: Date.now(),
-        });
-      }
+    if (existingIdx >= 0) {
+      updatedAccounts[existingIdx].displayName = displayName;
+      updatedAccounts[existingIdx].avatarUrl = avatarUrl;
+      updatedAccounts[existingIdx].isRegistered = true;
+    } else {
+      updatedAccounts.push({
+        steamId,
+        displayName,
+        avatarUrl,
+        refreshToken: "",
+        isRegistered: true,
+        lastUsed: Date.now(),
+      });
     }
-
-    // Save updated accounts list
-    await saveAccountsJSON(updatedAccounts);
-
-    return updatedAccounts;
-  } catch (err) {
-    logger.error("Error fetching accounts from Flask", err);
-    throw err;
   }
+
+  await saveAccountsJSON(updatedAccounts);
+  return updatedAccounts;
 }
 
 /**
@@ -603,9 +726,13 @@ ipcMain.handle('login-with-refresh-token', async (event, steamId) => {
  * Handle moving items from storage
  */
 ipcMain.handle('move-items-from-storage', async (_event, payload) => {
-  try {
+  const apiCall = async () => {
     await performMoves(payload);
     return { success: true };
+  };
+
+  try {
+    return await withDeviceTokenRetry(apiCall);
   } catch (err) {
     logger.error("Move items operation failed", err);
     return { success: false, error: "Failed to move items. Please try again." };
@@ -929,45 +1056,36 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
  */
 // Update sendNewItemsToServer function
 async function sendNewItemsToServer(casketId, newlyAddedItems, steamAccountId) {
-  const deviceToken = await getDeviceToken();
-  if (!deviceToken) {
-    logger.error("No device token available for sending new items");
-    throw new Error("Device token required");
-  }
+  const apiCall = async () => {
+    const deviceToken = await getDeviceToken();
+    if (!deviceToken) {
+      throw new Error("Device token required");
+    }
 
-  try {
     const serverUrl = `${API_BASE_URL}/register_storage_items`;
     const payload = {
-      device_token: deviceToken, // Add device token
+      device_token: deviceToken,
       steam_account_id: steamAccountId,
       storage_unit_id: casketId,
       items: newlyAddedItems,
     };
 
-
-    //ab hier
-
     logger.info(`[DEBUG] Preparing to send ${newlyAddedItems.length} items`);
 
-    // Count by market_hash_name
     const counts = {};
     newlyAddedItems.forEach(item => {
       const name = item.market_hash_name || 'Unknown';
       counts[name] = (counts[name] || 0) + 1;
     });
 
-    // Log the top items
     const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
     sorted.slice(0, 5).forEach(([name, count]) => {
       logger.info(`[DEBUG] Sending ${count}x ${name}`);
     });
 
-    // Check for duplicate assetids
     const assetids = newlyAddedItems.map(i => i.assetid);
     const uniqueAssetids = new Set(assetids);
     logger.info(`[DEBUG] Asset IDs: ${assetids.length} total, ${uniqueAssetids.size} unique`);
-
-    //bis hier
 
     const resp = await axios.post(serverUrl, payload, {
       withCredentials: true,
@@ -978,10 +1096,9 @@ async function sendNewItemsToServer(casketId, newlyAddedItems, steamAccountId) {
     }
     
     return resp.data;
-  } catch (err) {
-    logger.error(`Error sending new items to server: ${err.message}`);
-    throw err;
-  }
+  };
+
+  return await withDeviceTokenRetry(apiCall);
 }
 
 /**
@@ -992,18 +1109,15 @@ async function sendNewItemsToServer(casketId, newlyAddedItems, steamAccountId) {
  */
 // Update sendStorageUnitsToServer function
 async function sendStorageUnitsToServer(caskets, steamAccountId) {
-  const deviceToken = await getDeviceToken();
-  if (!deviceToken) {
-    logger.error("No device token available for sending storage units");
-    throw new Error("Device token required");
-  }
+  const apiCall = async () => {
+    const deviceToken = await getDeviceToken();
+    if (!deviceToken) {
+      throw new Error("Device token required");
+    }
 
-  try {
     const serverUrl = `${API_BASE_URL}/register_storage_units`;
-    
-    // Prepare payload with steam_account_id and storage units
     const payload = {
-      device_token: deviceToken, // Add device token
+      device_token: deviceToken,
       steam_account_id: steamAccountId,
       storage_units: caskets.map((casket) => ({
         storage_unit_id: casket.casketId,
@@ -1020,12 +1134,10 @@ async function sendStorageUnitsToServer(caskets, steamAccountId) {
     }
     
     return resp.data;
-  } catch (err) {
-    logger.error(`Error sending storage units to server: ${err.message}`);
-    throw err;
-  }
-}
+  };
 
+  return await withDeviceTokenRetry(apiCall);
+}
 /**
  * Initialize CS:GO connection
  * @param {Object} credentials - Login credentials
@@ -1556,19 +1668,17 @@ async function promptUserFor2FACodeInRenderer() {
  * @param {string} steamId - Steam ID
  */
 async function checkInventoryNeeds(steamId) {
-  logger.info("Fetching inventory-needs from API");
-  const url = `${API_BASE_URL}/inventory_needs/${steamId}`;
-  
-  const deviceToken = await getDeviceToken();
-  if (!deviceToken) {
-    logger.error("No device token available for inventory needs check");
-    throw new Error("Device token required");
-  }
+  const apiCall = async () => {
+    logger.info("Fetching inventory-needs from API");
+    const url = `${API_BASE_URL}/inventory_needs/${steamId}`;
+    
+    const deviceToken = await getDeviceToken();
+    if (!deviceToken) {
+      throw new Error("Device token required");
+    }
 
-  try {
-    // Change to POST to secure the token
     const { data } = await axios.post(url, { 
-      device_token: deviceToken  // Now in body, not URL
+      device_token: deviceToken
     }, {
       withCredentials: true
     });
@@ -1577,16 +1687,17 @@ async function checkInventoryNeeds(steamId) {
       throw new Error(data.error || "Unknown error");
     }
 
-    const needsSomething =
-      Array.isArray(data.needed) &&
-      data.needed.some(n => n.missing > 0 && n.storage_assetids.length);
+    return data;
+  };
 
-    if (needsSomething && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("inventory-needs", data);
-    }
-  } catch (err) {
-    logger.error("Failed to check inventory needs", err);
-    throw err;
+  const data = await withDeviceTokenRetry(apiCall);
+
+  const needsSomething =
+    Array.isArray(data.needed) &&
+    data.needed.some(n => n.missing > 0 && n.storage_assetids.length);
+
+  if (needsSomething && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("inventory-needs", data);
   }
 }
 
@@ -1682,43 +1793,42 @@ async function performMoves({ locked_assetids, needed }) {
 
 // Update syncInventoryWithServer function
 async function syncInventoryWithServer(steamId64) {
-  const deviceToken = await getDeviceToken();
-  if (!deviceToken) {
-    logger.error("No device token available for inventory sync");
-    throw new Error("Device token required");
-  }
-
-  // 1) live inventory
-  const webInv = await getWebInventory();
-  const payload = {
-    device_token: deviceToken, // Add device token to payload
-    inventory: webInv.map((i) => ({
-      assetid: String(i.assetid),
-      market_hash_name: i.market_hash_name || "",
-      tradable: i.tradable ? 1 : 0,
-    })),
-  };
-
-  // 2) storage units
-  try {
-    const caskets = await fetchAllCaskets();
-    for (const ck of caskets) {
-      try {
-        const items = await fetchCasketContents(ck.casketId);
-        payload[ck.casketId] = items.map((it) => String(it.id));
-      } catch (e) {
-        logger.warn(`Skipping casket ${ck.casketId}: ${e.message}`);
-      }
+  const apiCall = async () => {
+    const deviceToken = await getDeviceToken();
+    if (!deviceToken) {
+      throw new Error("Device token required");
     }
-  } catch (_) {
-    /* no caskets → fine */
-  }
 
-  // 3) POST to Flask
-  const url = `${API_BASE_URL}/inventory-sync/${steamId64}`;
-  logger.info(`POST → ${url}`);
+    // 1) live inventory
+    const webInv = await getWebInventory();
+    const payload = {
+      device_token: deviceToken,
+      inventory: webInv.map((i) => ({
+        assetid: String(i.assetid),
+        market_hash_name: i.market_hash_name || "",
+        tradable: i.tradable ? 1 : 0,
+      })),
+    };
 
-  try {
+    // 2) storage units
+    try {
+      const caskets = await fetchAllCaskets();
+      for (const ck of caskets) {
+        try {
+          const items = await fetchCasketContents(ck.casketId);
+          payload[ck.casketId] = items.map((it) => String(it.id));
+        } catch (e) {
+          logger.warn(`Skipping casket ${ck.casketId}: ${e.message}`);
+        }
+      }
+    } catch (_) {
+      /* no caskets → fine */
+    }
+
+    // 3) POST to Flask
+    const url = `${API_BASE_URL}/inventory-sync/${steamId64}`;
+    logger.info(`POST → ${url}`);
+
     const res = await axios.post(url, payload, {
       withCredentials: true,
       timeout: 15_000,
@@ -1726,16 +1836,9 @@ async function syncInventoryWithServer(steamId64) {
 
     logger.info("inventory-sync ok", res.data);
     return res.data;
-  } catch (err) {
-    if (axios.isAxiosError(err) && err.response) {
-      const { status, data } = err.response;
-      logger.error(`inventory-sync HTTP ${status}`, data);
-      throw new Error(data?.error || `inventory-sync failed (${status})`);
-    }
+  };
 
-    logger.error("inventory-sync network or unknown error", err.message);
-    throw err;
-  }
+  return await withDeviceTokenRetry(apiCall);
 }
 
 

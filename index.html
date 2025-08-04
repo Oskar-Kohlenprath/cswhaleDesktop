@@ -94,6 +94,25 @@
   </div>
   
   <!-- MODALS -->
+
+
+
+
+
+  <div id="device-reauth-modal" class="modal-overlay">
+    <div class="modal-content">
+      <h2 class="modal-title">Authentication Required</h2>
+      <div class="modal-body">
+        <p>Your device authentication has expired. Please complete the 2FA verification to continue.</p>
+        <p class="mt-3">You will receive a verification code via email.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="device-reauth-button" class="btn btn-primary" onclick="handleDeviceReauth()">
+          <i class="fas fa-shield-alt btn-icon"></i> Verify Device
+        </button>
+      </div>
+    </div>
+  </div>
   
   <!-- Steam Guard Modal -->
   <div id="steam-guard-modal" class="modal-overlay">
