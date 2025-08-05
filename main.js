@@ -1056,6 +1056,15 @@ ipcMain.on("casket-deep-check", async (event, casketId) => {
  */
 // Update sendNewItemsToServer function
 async function sendNewItemsToServer(casketId, newlyAddedItems, steamAccountId) {
+
+
+
+  if (!newlyAddedItems || newlyAddedItems.length === 0) {
+    logger.info('[DEBUG] No items to send, skipping server request');
+    return { success: true, message: 'No items to register' };
+  }
+
+
   const apiCall = async () => {
     const deviceToken = await getDeviceToken();
     if (!deviceToken) {
@@ -1077,6 +1086,9 @@ async function sendNewItemsToServer(casketId, newlyAddedItems, steamAccountId) {
       const name = item.market_hash_name || 'Unknown';
       counts[name] = (counts[name] || 0) + 1;
     });
+
+
+
 
     const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
     sorted.slice(0, 5).forEach(([name, count]) => {
@@ -1197,13 +1209,13 @@ async function initCSGO(credentials) {
 
       // Get accounts from Flask API
       try {
-        const accounts = await fetchAndUpdateAccountsFromFlask(dt);
+        const accounts = await fetchAndUpdateAccountsFromFlaskEnhanced(dt);
         const loggedInAccount = accounts.find(a => a.steamId === steamId);
 
         if (loggedInAccount) {
-          // This is a registered account
+        
           if (finalToken) {
-            // Only save token for THIS account
+            
             await saveAccountData({
               steamId,
               displayName: loggedInAccount.displayName,
@@ -1358,24 +1370,57 @@ async function removeTokenFromOtherAccounts(token, exceptSteamId) {
  * @returns {Promise<Array>} Inventory items
  */
 async function getWebInventory() {
-  logger.info("Fetching web inventory...");
-  return new Promise((resolve, reject) => {
-    community.getUserInventoryContents(
-      user.steamID,
-      730,
-      2,
-      false,
-      (err, inventory) => {
-        if (err) {
-          logger.error(`Error fetching inventory`, err);
-          return reject(err);
+  return retryWithBackoff(() => {
+    return new Promise((resolve, reject) => {
+      community.getUserInventoryContents(
+        user.steamID,
+        730,
+        2,
+        false,
+        (err, inventory) => {
+          if (err) {
+            logger.error(`Error fetching inventory`, err);
+            return reject(err);
+          }
+          logger.info(`Inventory fetched. Count = ${inventory.length}`);
+          resolve(inventory);
         }
-        logger.info(`Inventory fetched. Count = ${inventory.length}`);
-        resolve(inventory);
-      }
-    );
+      );
+    });
   });
 }
+
+
+
+
+
+async function retryWithBackoff(fn, maxRetries = 5, initialDelay = 1000) {
+  let lastError;
+  let delay = initialDelay;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      
+      // Check if it's a rate limit error
+      if (error.message && error.message.includes('duplicate') && attempt < maxRetries - 1) {
+        logger.warn(`Rate limit hit, waiting ${delay}ms before retry (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        
+        // Exponential backoff with jitter
+        delay = Math.min(delay * 2 + Math.random() * 1000, 30000);
+      } else {
+        throw error;
+      }
+    }
+  }
+  
+  throw lastError;
+}
+
+
 
 /**
  * Fetch all storage units (caskets)

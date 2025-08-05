@@ -80,8 +80,10 @@ const updateState = {
 
 
 // Add this to renderer.js - Global state for scan all functionality
+// Add this to the scanAllState object
 const scanAllState = {
   isScanning: false,
+  isBatchMode: false,  // Add this line
   cancelled: false,
   currentIndex: 0,
   totalUnits: 0,
@@ -89,7 +91,6 @@ const scanAllState = {
   results: [],
   startTime: null
 };
-
 
 // Function to scan all storage units
 async function scanAllStorageUnits() {
@@ -108,6 +109,7 @@ async function scanAllStorageUnits() {
   
   // Initialize scan state
   scanAllState.isScanning = true;
+  scanAllState.isBatchMode = true;  // Add this line
   scanAllState.cancelled = false;
   scanAllState.currentIndex = 0;
   scanAllState.totalUnits = scanAllState.caskets.length;
@@ -130,9 +132,12 @@ async function scanAllStorageUnits() {
 }
 
 // Process the scan queue
+// Process the scan queue
 async function processScanQueue() {
   while (scanAllState.currentIndex < scanAllState.totalUnits && !scanAllState.cancelled) {
     const casket = scanAllState.caskets[scanAllState.currentIndex];
+    
+    logger.log(`Starting scan ${scanAllState.currentIndex + 1} of ${scanAllState.totalUnits}: ${casket.casketName}`);
     
     // Update UI
     document.getElementById('scan-progress-current').textContent = `Currently scanning: ${casket.casketName}`;
@@ -141,7 +146,9 @@ async function processScanQueue() {
     
     try {
       // Start the deep check with suppressModal = true
+      logger.log(`Calling performDeepCheck for ${casket.casketName}`);
       const result = await performDeepCheck(casket.casketId, casket.casketName, true);
+      logger.log(`Deep check completed for ${casket.casketName}:`, result.success ? 'Success' : 'Failed');
       
       // Store result with items detail
       scanAllState.results.push({
@@ -175,56 +182,75 @@ async function processScanQueue() {
     
     scanAllState.currentIndex++;
     updateScanAllProgress();
+    logger.log(`Progress: ${scanAllState.currentIndex} of ${scanAllState.totalUnits} completed`);
     
     // Small delay between scans to prevent overwhelming the system
     if (scanAllState.currentIndex < scanAllState.totalUnits && !scanAllState.cancelled) {
+      logger.log('Waiting 1 second before next scan...');
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
   
+  logger.log('All scans completed, finishing scan all process');
   // Scan complete
   finishScanAll();
 }
 
 // Modified deep check function that returns a promise
+// Modified deep check function that returns a promise
+// Modified deep check function that returns a promise
+// Modified deep check function that returns a promise
 function performDeepCheck(casketId, casketName, suppressModal = false) {
   return new Promise((resolve) => {
-    let originalProgressHandler = null;
+    let resolved = false; // Track if we've already resolved
     
-    // Create a one-time handler for this specific scan
-    const onceHandler = (data) => {
-      // Restore original progress handler if we changed it
-      if (originalProgressHandler && suppressModal) {
-        window.electronAPI.onDeepCheckProgress(originalProgressHandler);
-      }
-      
-      // If we're in batch mode, don't show individual modals
-      if (suppressModal) {
-        // Just resolve with the data without showing modal
+    // Create a temporary handler for this specific deep check
+    const tempResultHandler = (data) => {
+      if (!resolved) {
+        resolved = true;
+        
+        // Always resolve the promise with the data
         resolve(data);
-      } else {
-        // Normal single scan - show the modal
-        handleDeepCheckResult(data);
-        resolve(data);
+        
+        // If not in batch mode and not suppressed, show the modal
+        if (!suppressModal && !scanAllState.isBatchMode) {
+          handleDeepCheckResult(data);
+        }
       }
     };
     
     // Update progress handler for batch mode
-    if (suppressModal) {
-      originalProgressHandler = window.electronAPI.onDeepCheckProgress;
+    if (suppressModal || scanAllState.isBatchMode) {
       window.electronAPI.onDeepCheckProgress((data) => {
-        // Update the individual storage unit progress
         updateIndividualUnitProgress(casketId, data.progress);
       });
     }
     
-    // Set our one-time handler
-    window.electronAPI.onDeepCheckResult(onceHandler);
+    // Override the result handler temporarily
+    const originalResultHandler = window.electronAPI.onDeepCheckResult;
+    window.electronAPI.onDeepCheckResult(tempResultHandler);
     
     // Start the deep check
     window.electronAPI.deepCheckCasket(casketId);
+    
+    // Set a timeout to restore the original handler and resolve if needed
+    setTimeout(() => {
+      if (!resolved) {
+        logger.error(`Deep check for ${casketName} timed out after 5 minutes`);
+        resolved = true;
+        resolve({ success: false, error: 'Operation timed out' });
+      }
+      // Restore original handler
+      window.electronAPI.onDeepCheckResult(originalResultHandler);
+    }, 300000); // 5 minute timeout
   });
 }
+
+
+
+
+
+
 
 // Update progress UI
 function updateScanAllProgress() {
@@ -244,19 +270,20 @@ function updateScanAllProgress() {
 
 
 function createUnitProgressDisplay() {
-  const modalBody = document.querySelector('#scan-all-modal .modal-body');
+  const container = document.getElementById('unit-progress-container');
   
-  // Create container for unit progress
-  let unitProgressContainer = document.getElementById('unit-progress-container');
-  if (!unitProgressContainer) {
-    unitProgressContainer = document.createElement('div');
-    unitProgressContainer.id = 'unit-progress-container';
-    unitProgressContainer.className = 'unit-progress-container';
-    modalBody.appendChild(unitProgressContainer);
+  if (!container) {
+    logger.error('Unit progress container not found');
+    return;
   }
   
   // Clear and populate with storage units
-  unitProgressContainer.innerHTML = '<h4>Storage Units:</h4>';
+  container.innerHTML = '';
+  container.className = 'unit-progress-container';
+  
+  const header = document.createElement('h4');
+  header.textContent = 'Storage Units:';
+  container.appendChild(header);
   
   scanAllState.caskets.forEach((casket, index) => {
     const unitProgress = document.createElement('div');
@@ -273,19 +300,25 @@ function createUnitProgressDisplay() {
       </div>
     `;
     
-    unitProgressContainer.appendChild(unitProgress);
+    container.appendChild(unitProgress);
   });
 }
 
 
 
 function updateIndividualUnitProgress(casketId, progress) {
-  const progressBar = document.getElementById(`unit-bar-${casketId}`);
-  if (progressBar) {
-    progressBar.style.width = `${progress}%`;
+  const unit = document.getElementById(`unit-progress-${casketId}`);
+  
+  // Only update if this unit is currently scanning
+  if (unit && unit.classList.contains('scanning')) {
+    const progressBar = document.getElementById(`unit-bar-${casketId}`);
+    if (progressBar) {
+      progressBar.style.width = `${progress}%`;
+    }
   }
 }
 
+// Mark unit as complete
 // Mark unit as complete
 function markUnitComplete(casketId) {
   const unit = document.getElementById(`unit-progress-${casketId}`);
@@ -298,7 +331,11 @@ function markUnitComplete(casketId) {
   if (status) status.textContent = 'Complete';
   
   const progressBar = document.getElementById(`unit-bar-${casketId}`);
-  if (progressBar) progressBar.style.width = '100%';
+  if (progressBar) {
+    progressBar.style.width = '100%';
+    // Ensure it stays at 100% by setting a more specific style
+    progressBar.style.cssText = 'width: 100% !important;';
+  }
 }
 
 // Mark unit as failed
@@ -315,6 +352,7 @@ function markUnitFailed(casketId) {
 
 function finishScanAll() {
   scanAllState.isScanning = false;
+  scanAllState.isBatchMode = false;  // Add this line
   const totalTime = Date.now() - scanAllState.startTime;
   
   // Calculate totals
@@ -427,9 +465,17 @@ function cancelScanAll() {
 
 
 function highlightCurrentUnit(casketId) {
-  // Remove highlight from all units
+  // Remove highlight and reset all progress bars
   document.querySelectorAll('.unit-progress-item').forEach(item => {
     item.classList.remove('scanning');
+    
+    // If it's marked as complete, ensure the bar stays at 100%
+    if (item.classList.contains('complete')) {
+      const progressBar = item.querySelector('.unit-progress-bar');
+      if (progressBar) {
+        progressBar.style.cssText = 'width: 100% !important;';
+      }
+    }
   });
   
   // Add highlight to current unit
@@ -438,9 +484,14 @@ function highlightCurrentUnit(casketId) {
     currentUnit.classList.add('scanning');
     const status = document.getElementById(`unit-status-${casketId}`);
     if (status) status.textContent = 'Scanning...';
+    
+    // Reset the current unit's progress bar to 0
+    const progressBar = document.getElementById(`unit-bar-${casketId}`);
+    if (progressBar) {
+      progressBar.style.width = '0%';
+    }
   }
 }
-
 
 function addScanAllEventListeners() {
   // Scan all button
@@ -1220,10 +1271,11 @@ function setupIPCHandlers() {
   });
   
   // Deep check result
+// Deep check result
   window.electronAPI.onDeepCheckResult((data) => {
     handleDeepCheckResult(data);
   });
-  
+    
   // Account details
   window.electronAPI.onAccountDetails((_, data) => {
     logger.log(`Received account details: ${JSON.stringify(data)}`);

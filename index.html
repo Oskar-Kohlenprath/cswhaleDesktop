@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CS-ASSETS Storage Unit Scanner</title>
+  <title>CSWhale</title>
   <link rel="icon" type="image/png" href="static/images/favicon.png">
   <link rel="stylesheet" href="styles.css">
   <!-- Google Fonts - Inter -->
@@ -70,7 +70,7 @@
     
 
     <div class="storage-actions">
-      <h1>Your Storage Units</h1>
+      <h1>Click To Scan</h1>
       <button id="scan-all-button" class="btn btn-primary" style="display: none;">
         <i class="fas fa-sync-alt btn-icon"></i> Scan All Storage Units
       </button>
@@ -141,10 +141,12 @@
         <div class="progress-container" style="margin-top: 20px;">
           <div id="scan-all-progress-bar" class="progress-bar"></div>
         </div>
+        <!-- This div will be populated by JavaScript -->
+        <div id="unit-progress-container"></div>
       </div>
       <div class="modal-footer">
         <button id="cancel-scan-all" class="btn btn-secondary">Cancel</button>
-        <button id="scan-all-complete" class="btn btn-primary" style="display: none;">View Results</button>
+        <button id="scan-all-complete" class="btn btn-primary" style="display: none;">Close</button>
       </div>
     </div>
   </div>

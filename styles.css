@@ -1129,6 +1129,8 @@ p {
 /* Scan Summary */
 .scan-summary {
   text-align: left;
+
+  padding-right: var(--space-2);
 }
 
 .scan-summary h3 {
@@ -1145,6 +1147,7 @@ p {
   padding: var(--space-4);
   background: var(--neutral-800);
   border-radius: var(--radius-sm);
+  margin-right: var(--space-2);
 }
 
 .scan-stat {
@@ -1210,5 +1213,263 @@ p {
   
   .scan-stats {
     grid-template-columns: 1fr;
+  }
+}
+
+
+
+
+/* ——————————————————————————————————————————————
+   SCAN ALL MODAL SPECIFIC STYLES
+   —————————————————————————————————————————————— */
+
+/* Unit Progress Container */
+.unit-progress-container {
+  max-height: 250px;
+  overflow-y: auto;
+  margin: var(--space-4) 0;
+  padding: var(--space-3);
+  background: var(--neutral-800);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  /* Add margin to create distance from outer scroll */
+  margin-right: var(--space-2);
+}
+
+
+
+.unit-progress-container::-webkit-scrollbar,
+.scan-result-list.compact::-webkit-scrollbar {
+  width: 6px;
+}
+
+.unit-progress-container::-webkit-scrollbar-track,
+.scan-result-list.compact::-webkit-scrollbar-track {
+  background: var(--neutral-700);
+  border-radius: 3px;
+}
+
+.unit-progress-container::-webkit-scrollbar-thumb,
+.scan-result-list.compact::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+/* Ensure completed progress bars stay full */
+.unit-progress-item.complete .unit-progress-bar {
+  width: 100% !important;
+  background: var(--success) !important;
+}
+
+
+
+
+.unit-progress-container h4 {
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: var(--space-3);
+  position: sticky;
+  top: 0;
+  background: var(--neutral-800);
+  padding-bottom: var(--space-2);
+}
+
+.unit-progress-item {
+  background: var(--neutral-900);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  transition: var(--transition);
+}
+
+.unit-progress-item:last-child {
+  margin-bottom: 0;
+}
+
+.unit-progress-item.scanning {
+  border-color: var(--primary-500);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+}
+
+.unit-progress-item.complete {
+  border-color: var(--success);
+  opacity: 0.7;
+}
+
+.unit-progress-item.failed {
+  border-color: var(--danger);
+  opacity: 0.7;
+}
+
+.unit-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+
+.unit-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.unit-status {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.unit-progress-item.scanning .unit-status {
+  color: var(--primary-500);
+}
+
+.unit-progress-item.complete .unit-status {
+  color: var(--success);
+}
+
+.unit-progress-item.failed .unit-status {
+  color: var(--danger);
+}
+
+.unit-progress-bar-container {
+  height: 4px;
+  background: var(--neutral-800);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.unit-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary-500), var(--primary-400));
+  width: 0%;
+  transition: width 0.3s ease;
+  border-radius: 2px;
+}
+
+.unit-progress-item.complete .unit-progress-bar {
+  background: var(--success);
+}
+
+.unit-progress-item.failed .unit-progress-bar {
+  background: var(--danger);
+  width: 100% !important;
+}
+
+/* Scan All Modal Content Adjustments */
+#scan-all-modal .modal-content {
+  max-height: 85vh;
+  width: 550px;
+  display: flex;
+  flex-direction: column;
+  padding: 0; /* Remove default padding */
+}
+
+#scan-all-modal .modal-title {
+  padding: var(--space-8) var(--space-8) var(--space-4) var(--space-8);
+  margin-bottom: 0;
+}
+
+
+
+
+#scan-all-modal .modal-body {
+  flex: 1;
+  overflow-y: auto;
+  max-height: calc(85vh - 180px);
+  padding: 0 var(--space-8) var(--space-4) var(--space-8);
+  margin-bottom: var(--space-4);
+}
+
+
+#scan-all-modal .modal-footer {
+  padding: var(--space-4) var(--space-8) var(--space-8) var(--space-8);
+  border-top: 1px solid var(--border);
+  margin-top: 0;
+}
+
+
+
+/* Scan Summary Improvements */
+.scan-summary {
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+.scan-items-summary {
+  margin-top: var(--space-4);
+}
+
+.scan-items-summary h4 {
+  font-size: 1rem;
+  margin-bottom: var(--space-3);
+  color: var(--text-primary);
+}
+
+/* Compact scan result list for scan all */
+.scan-result-list.compact {
+  max-height: 250px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  background: var(--neutral-900);
+  margin-right: var(--space-2); /* Distance from outer scroll */
+}
+
+
+.scan-result-item.compact {
+  padding: var(--space-2);
+  margin-bottom: var(--space-2);
+  background: var(--neutral-800);
+}
+
+.scan-result-item.compact:last-child {
+  margin-bottom: 0;
+}
+
+.scan-result-item.compact img {
+  width: 40px;
+  height: 40px;
+  margin-right: var(--space-3);
+}
+
+.scan-result-item.compact .scan-result-item-info {
+  flex: 1;
+}
+
+.scan-result-item.compact .scan-result-item-name {
+  font-size: 0.875rem;
+}
+
+.scan-result-item.compact .scan-result-item-count {
+  font-size: 0.75rem;
+}
+
+.more-items {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin-top: var(--space-3);
+  font-style: italic;
+}
+
+/* Responsive adjustments for scan all modal */
+@media (max-width: 768px) {
+  #scan-all-modal .modal-content {
+    width: 95%;
+    max-height: 90vh;
+  }
+  
+  .unit-progress-container {
+    max-height: 200px;
+  }
+  
+  .scan-result-list.compact {
+    max-height: 200px;
   }
 }
