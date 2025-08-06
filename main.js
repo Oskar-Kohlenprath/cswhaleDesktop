@@ -5,6 +5,7 @@ const path = require("path");
 const fs = require('fs');
 const os = require('os');
 
+
 // Steam libraries
 const SteamUser = require("steam-user");
 const GlobalOffensive = require("globaloffensive");
@@ -13,6 +14,7 @@ const axios = require("axios");
 const keytar = require("keytar");
 const jwt_decode = require("jwt-decode");
 const { autoUpdater } = require("electron-updater");
+
 
 // Constants
 const BASE_SERVICE_NAME = "cs-assets-service";
@@ -37,73 +39,20 @@ let lastReceivedToken = null;
 let logStream; // For file logging
 
 
-autoUpdater.autoDownload = false; // Don't auto-download, ask user first
-autoUpdater.checkForUpdatesAndNotify();
-
-
-
-/**
- * Get device token from keytar
- * @returns {Promise<string|null>} Device token or null
- */
-async function getDeviceToken() {
-  try {
-    return await keytar.getPassword(SERVICE_NAME, DEVICE_TOKEN_KEY);
-  } catch (err) {
-    logger.error("Error getting device token", err);
-    return null;
-  }
-}
 
 
 
 
-async function ensureValidDeviceToken() {
-  const token = await getDeviceToken();
-  if (!token) {
-    // If no token during active session, try to get one
-    if (user && user.steamID) {
-      const steamId = user.steamID.getSteamID64();
-      return await ensureDeviceToken(steamId);
-    }
-    throw new Error("No device token and no active session");
-  }
-  return token;
-}
 
 
 
 
-async function ensureValidDeviceTokenEnhanced() {
-  const token = await getDeviceToken();
-  if (!token) {
-    // If no token during active session, try to get one
-    if (user && user.steamID) {
-      const steamId = user.steamID.getSteamID64();
-      return await ensureDeviceToken(steamId);
-    }
-    throw new Error("No device token and no active session");
-  }
-  
-  // Validate token by making a simple API call
-  try {
-    const testUrl = `${API_BASE_URL}/desktop_steam_accounts`;
-    await axios.post(testUrl, { device_token: token }, { timeout: 5000 });
-    return token;
-  } catch (error) {
-    if (error.response && error.response.status === 401) {
-      logger.info('Stored device token is invalid, clearing and getting new one...');
-      await keytar.deletePassword(SERVICE_NAME, DEVICE_TOKEN_KEY);
-      
-      if (user && user.steamID) {
-        const steamId = user.steamID.getSteamID64();
-        return await ensureDeviceToken(steamId);
-      }
-      throw new Error("Invalid token and no active session");
-    }
-    throw error;
-  }
-}
+
+
+
+
+
+
 
 
 /**
@@ -190,7 +139,157 @@ class Logger {
   }
 }
 
+
+
+
+
+
+
 const logger = new Logger();
+
+
+
+
+// Just set autoDownload to false, don't call checkForUpdatesAndNotify yet
+autoUpdater.autoDownload = false;
+// Don't set a logger - let events handle logging
+
+
+
+autoUpdater.on('checking-for-update', () => {
+    logger.info('Checking for update...');
+    logger.info(`Current app version: ${app.getVersion()}`);
+    if (mainWindow) {
+        mainWindow.webContents.send('update-status', 'Checking for updates...');
+    }
+});
+
+
+
+
+
+autoUpdater.on('update-available', (info) => {
+    logger.info(`Update available: version ${info.version}`);
+    logger.info(`Release date: ${info.releaseDate}`);
+    logger.info(`Release notes: ${info.releaseNotes}`);
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-available', {
+            version: info.version,
+            releaseNotes: info.releaseNotes
+        });
+    }
+});
+
+autoUpdater.on('update-not-available', (info) => {
+    logger.info('No update available');
+    logger.info(`Current version ${app.getVersion()} is the latest`);
+});
+
+
+autoUpdater.on('download-progress', (progressObj) => {
+    logger.info(`Download progress: ${Math.round(progressObj.percent)}% (${progressObj.transferred}/${progressObj.total} bytes)`);
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('download-progress', {
+            percent: progressObj.percent,
+            transferred: progressObj.transferred,
+            total: progressObj.total
+        });
+    }
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+    logger.info(`Update downloaded: version ${info.version}`);
+    logger.info('Update is ready to install');
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update-downloaded', {
+            version: info.version
+        });
+    }
+});
+
+
+
+autoUpdater.on('error', (err) => {
+    logger.error('Auto-updater error:', err);
+    logger.error(`Error message: ${err.message}`);
+    logger.error(`Error stack: ${err.stack}`);
+    
+    if (mainWindow) {
+        mainWindow.webContents.send('update-error', err.message);
+    }
+});
+
+
+
+/**
+ * Get device token from keytar
+ * @returns {Promise<string|null>} Device token or null
+ */
+async function getDeviceToken() {
+  try {
+    return await keytar.getPassword(SERVICE_NAME, DEVICE_TOKEN_KEY);
+  } catch (err) {
+    logger.error("Error getting device token", err);
+    return null;
+  }
+}
+
+
+
+
+async function ensureValidDeviceToken() {
+  const token = await getDeviceToken();
+  if (!token) {
+    // If no token during active session, try to get one
+    if (user && user.steamID) {
+      const steamId = user.steamID.getSteamID64();
+      return await ensureDeviceToken(steamId);
+    }
+    throw new Error("No device token and no active session");
+  }
+  return token;
+}
+
+
+
+
+async function ensureValidDeviceTokenEnhanced() {
+  const token = await getDeviceToken();
+  if (!token) {
+    // If no token during active session, try to get one
+    if (user && user.steamID) {
+      const steamId = user.steamID.getSteamID64();
+      return await ensureDeviceToken(steamId);
+    }
+    throw new Error("No device token and no active session");
+  }
+  
+  // Validate token by making a simple API call
+  try {
+    const testUrl = `${API_BASE_URL}/desktop_steam_accounts`;
+    await axios.post(testUrl, { device_token: token }, { timeout: 5000 });
+    return token;
+  } catch (error) {
+    if (error.response && error.response.status === 401) {
+      logger.info('Stored device token is invalid, clearing and getting new one...');
+      await keytar.deletePassword(SERVICE_NAME, DEVICE_TOKEN_KEY);
+      
+      if (user && user.steamID) {
+        const steamId = user.steamID.getSteamID64();
+        return await ensureDeviceToken(steamId);
+      }
+      throw new Error("Invalid token and no active session");
+    }
+    throw error;
+  }
+}
+
+
+
+
 
 
 
@@ -318,13 +417,33 @@ function createWindow() {
   mainWindow.once('ready-to-show', () => {
     splash.destroy();
     mainWindow.show();
-  });
-
-  setTimeout(() => {
-  if (!process.env.NODE_ENV || process.env.NODE_ENV === 'production') {
-    autoUpdater.checkForUpdatesAndNotify();
+    
+    // Check for updates after window is shown
+    // Check for updates after window is shown
+  if (app.isPackaged) {  // Only in production
+      setTimeout(() => {
+          logger.info('=== AUTO-UPDATE CHECK ===');
+          logger.info(`App version: ${app.getVersion()}`);
+          logger.info(`Platform: ${process.platform}`);
+          logger.info(`Architecture: ${process.arch}`);
+          logger.info(`Electron version: ${process.versions.electron}`);
+          
+          autoUpdater.checkForUpdatesAndNotify()
+              .then(result => {
+                  logger.info('Update check initiated successfully');
+                  if (result) {
+                      logger.info(`Update check result: ${JSON.stringify(result)}`);
+                  }
+              })
+              .catch(err => {
+                  logger.error('Update check failed:', err);
+                  logger.error(`Error details: ${err.message}`);
+                  logger.error(`Network available: ${require('electron').net.isOnline()}`);
+              });
+      }, 3000);
   }
-}, 5000);
+});
+
 
   // Open DevTools only in development
   if (process.env.NODE_ENV === 'development') {
@@ -336,6 +455,24 @@ function createWindow() {
     mainWindow = null;
   });
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /**
  * Initialize application
@@ -392,52 +529,6 @@ app.on('activate', () => {
 
 
 
-
-
-
-// Auto-updater event handlers
-autoUpdater.on('checking-for-update', () => {
-  logger.info('Checking for update...');
-});
-
-autoUpdater.on('update-available', (info) => {
-  logger.info('Update available:', info.version);
-  
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('update-available', {
-      version: info.version,
-      releaseNotes: info.releaseNotes
-    });
-  }
-});
-
-autoUpdater.on('update-not-available', (info) => {
-  logger.info('Update not available');
-});
-
-autoUpdater.on('error', (err) => {
-  logger.error('Error in auto-updater:', err);
-});
-
-autoUpdater.on('download-progress', (progressObj) => {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('download-progress', {
-      percent: progressObj.percent,
-      transferred: progressObj.transferred,
-      total: progressObj.total
-    });
-  }
-});
-
-autoUpdater.on('update-downloaded', (info) => {
-  logger.info('Update downloaded');
-  
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('update-downloaded', {
-      version: info.version
-    });
-  }
-});
 
 // IPC handlers for updater
 ipcMain.handle('download-update', async () => {
