@@ -150,10 +150,9 @@ const logger = new Logger();
 
 
 
-// Just set autoDownload to false, don't call checkForUpdatesAndNotify yet
-autoUpdater.autoDownload = false;
-// Don't set a logger - let events handle logging
-
+autoUpdater.forceDevUpdateConfig = true;  // Bypass signature verification
+autoUpdater.autoDownload = false;         // Let users choose when to download
+autoUpdater.autoInstallOnAppQuit = false; // Let users choose when to install
 
 
 autoUpdater.on('checking-for-update', () => {

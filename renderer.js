@@ -1208,30 +1208,7 @@ function setupIPCHandlers() {
 
 
 
-  function setupUpdateHandlers() {
-  // Update available
-  window.electronAPI.onUpdateAvailable((info) => {
-    console.log('%c[UPDATE AVAILABLE]', 'background: #10b981; color: white; padding: 2px 4px; border-radius: 2px;', info);
-    logger.log(`Update available: ${info.version}`);
-    updateState.updateAvailable = true;
-    updateState.currentVersion = info.version;
-    showUpdateNotification(info);
-  });
-  
-  // Download progress
-  window.electronAPI.onDownloadProgress((progress) => {
-    console.log('[UPDATE PROGRESS]', `${Math.round(progress.percent)}%`);
-    handleDownloadProgress(progress);
-  });
-  
-  // Update downloaded
-  window.electronAPI.onUpdateDownloaded((info) => {
-    console.log('%c[UPDATE DOWNLOADED]', 'background: #3b82f6; color: white; padding: 2px 4px; border-radius: 2px;', info);
-    logger.log(`Update downloaded: ${info.version}`);
-    handleUpdateDownloaded(info);
-    toast.success('Update downloaded successfully!');
-  });
-}
+
 
 
   // Login events
@@ -1343,6 +1320,33 @@ function setupIPCHandlers() {
 
 
 
+}
+
+
+
+function setupUpdateHandlers() {
+  // Update available
+  window.electronAPI.onUpdateAvailable((info) => {
+    console.log('%c[UPDATE AVAILABLE]', 'background: #10b981; color: white; padding: 2px 4px; border-radius: 2px;', info);
+    logger.log(`Update available: ${info.version}`);
+    updateState.updateAvailable = true;
+    updateState.currentVersion = info.version;
+    showUpdateNotification(info);
+  });
+  
+  // Download progress
+  window.electronAPI.onDownloadProgress((progress) => {
+    console.log('[UPDATE PROGRESS]', `${Math.round(progress.percent)}%`);
+    handleDownloadProgress(progress);
+  });
+  
+  // Update downloaded
+  window.electronAPI.onUpdateDownloaded((info) => {
+    console.log('%c[UPDATE DOWNLOADED]', 'background: #3b82f6; color: white; padding: 2px 4px; border-radius: 2px;', info);
+    logger.log(`Update downloaded: ${info.version}`);
+    handleUpdateDownloaded(info);
+    toast.success('Update downloaded successfully!');
+  });
 }
 
 

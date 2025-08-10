@@ -1,6 +1,6 @@
 {
   "name": "cswhale-desktop",
-  "version": "1.0.5",
+  "version": "1.0.1",
   "description": "cswhale storage unit Verification Tool",
   "main": "main.js",
   "homepage": "https://cswhale.com",
@@ -48,7 +48,7 @@
   },
   "build": {
     "appId": "com.cswhale.inventory-verifier",
-    "productName": "cswhale Inventory Verifier",
+    "productName": "cswhale-Inventory-Verifier",
     "copyright": "Copyright © 2024 cswhale",
     "directories": {
       "output": "dist"
