@@ -1211,6 +1211,7 @@ function setupIPCHandlers() {
   function setupUpdateHandlers() {
   // Update available
   window.electronAPI.onUpdateAvailable((info) => {
+    console.log('%c[UPDATE AVAILABLE]', 'background: #10b981; color: white; padding: 2px 4px; border-radius: 2px;', info);
     logger.log(`Update available: ${info.version}`);
     updateState.updateAvailable = true;
     updateState.currentVersion = info.version;
@@ -1219,16 +1220,18 @@ function setupIPCHandlers() {
   
   // Download progress
   window.electronAPI.onDownloadProgress((progress) => {
+    console.log('[UPDATE PROGRESS]', `${Math.round(progress.percent)}%`);
     handleDownloadProgress(progress);
   });
   
   // Update downloaded
   window.electronAPI.onUpdateDownloaded((info) => {
+    console.log('%c[UPDATE DOWNLOADED]', 'background: #3b82f6; color: white; padding: 2px 4px; border-radius: 2px;', info);
     logger.log(`Update downloaded: ${info.version}`);
     handleUpdateDownloaded(info);
     toast.success('Update downloaded successfully!');
   });
-  }
+}
 
 
   // Login events
@@ -1309,10 +1312,20 @@ function setupIPCHandlers() {
   });
   
   // Log event
-  window.electronAPI.onLogEvent((message) => {
-    logger.log(message);
+  // In renderer.js
+  window.electronAPI.onLogEvent((_, message) => {
+    // Highlight auto-updater related logs
+    if (message && message.includes('update')) {
+      console.log('%c[Auto-Updater]', 'color: #10b981; font-weight: bold;', message);
+    } else if (message && message.includes('ERROR')) {
+      console.error('[Main Process]', message);
+    } else {
+      console.log('[Main Process]', message);
+    }
   });
-  
+
+
+
   // Inventory needs
   window.electronAPI.onInventoryNeeds((data) => {
     handleInventoryNeeds(data);
