@@ -1473,3 +1473,25 @@ p {
     max-height: 200px;
   }
 }
+
+
+/* Required Modal Styling */
+#move-items-modal .modal-content {
+  border: 2px solid var(--warning);
+  box-shadow: 0 0 30px rgba(245, 158, 11, 0.3);
+}
+
+#move-items-modal .modal-content::before {
+  background: linear-gradient(90deg, transparent, var(--warning), transparent);
+  height: 3px;
+}
+
+#move-items-success-modal .modal-content {
+  border: 2px solid var(--success);
+  box-shadow: 0 0 30px rgba(16, 185, 129, 0.3);
+}
+
+#move-items-success-modal .modal-content::before {
+  background: linear-gradient(90deg, transparent, var(--success), transparent);
+  height: 3px;
+}

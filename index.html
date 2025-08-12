@@ -194,22 +194,41 @@
   </div>
   
   <!-- Move Items Modal -->
+  <!-- Move Items Modal -->
   <div id="move-items-modal" class="modal-overlay">
     <div class="modal-content">
-      <h2 class="modal-title">Missing Items</h2>
+      <h2 class="modal-title">⚠️ Required: Missing Items</h2>
       <div class="modal-body">
         <p id="move-items-text">
           We found items that must be moved from storage into your inventory
           for pending orders. Do you want to move them?
         </p>
+        <p style="margin-top: 15px; color: var(--warning); font-size: 0.875rem;">
+          <strong>Note:</strong> This action is required to fulfill your pending orders.
+        </p>
       </div>
       <div class="modal-footer">
-        <button id="move-items-no" class="btn btn-secondary">Later</button>
-        <button id="move-items-yes" class="btn btn-primary">Yes, move items</button>
+        <button id="move-items-yes" class="btn btn-primary">Move Items Now</button>
       </div>
     </div>
   </div>
-  
+
+  <!-- Move Items Success Modal -->
+  <div id="move-items-success-modal" class="modal-overlay">
+    <div class="modal-content">
+      <h2 class="modal-title">✅ Items Moved Successfully!</h2>
+      <div class="modal-body">
+        <p>Your items have been successfully moved to your inventory.</p>
+        <p style="margin-top: 20px;"><strong>Next Step:</strong></p>
+        <p>Please go back to <strong>cswhale.com</strong> and click the <strong>"Send Items Now"</strong></p>
+      </div>
+      <div class="modal-footer">
+        <a href="https://www.cswhale.com/dashboard" target="_blank" class="btn btn-primary">Go to cswhale Dashboard</a>
+        <button id="move-items-success-close" class="btn btn-secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Scan Result Modal -->
   <div id="scan-result-modal" class="scan-result-modal">
     <div class="scan-result-content">

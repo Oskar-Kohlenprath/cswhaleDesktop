@@ -1114,14 +1114,19 @@ async function moveItemsFromStorage() {
     hideLoading();
     
     if (response.success) {
-      toast.success('Items moved successfully');
+      // Show the success modal instead of just a toast
+      showModal('move-items-success-modal');
     } else {
       toast.error(`Failed to move items: ${response.error}`);
+      // Show the move items modal again since it's required
+      showModal('move-items-modal');
     }
   } catch (error) {
     hideLoading();
     logger.error('Error moving items from storage', error);
     toast.error('An error occurred while moving items');
+    // Show the move items modal again since it's required
+    showModal('move-items-modal');
   }
 }
 
@@ -1153,13 +1158,24 @@ function setupEventListeners() {
   
   document.querySelectorAll('.modal-overlay').forEach(modal => {
     modal.addEventListener('click', (e) => {
-      if (e.target === modal && modal.id !== 'device-2fa-modal') {
-        // Special handling for scan-all modal
-        if (modal.id === 'scan-all-modal' && scanAllState.isScanning) {
-          e.stopPropagation();
-          toast.warning('Please wait for the scan to complete or click Cancel');
-          return;
+      if (e.target === modal) {
+        // Prevent dismissing these critical modals
+        const nonDismissibleModals = ['device-2fa-modal', 'move-items-modal', 'scan-all-modal'];
+        
+        if (nonDismissibleModals.includes(modal.id)) {
+          if (modal.id === 'scan-all-modal' && scanAllState.isScanning) {
+            e.stopPropagation();
+            toast.warning('Please wait for the scan to complete or click Cancel');
+            return;
+          } else if (modal.id === 'move-items-modal') {
+            e.stopPropagation();
+            toast.warning('Please click "Move Items Now" to continue');
+            return;
+          } else if (modal.id === 'device-2fa-modal') {
+            return; // Already handled
+          }
         }
+        
         hideModal(modal.id);
       }
     });
@@ -1198,9 +1214,11 @@ function setupEventListeners() {
 
   // Move items buttons
   document.getElementById('move-items-yes').addEventListener('click', moveItemsFromStorage);
-  document.getElementById('move-items-no').addEventListener('click', () => {
-    hideModal('move-items-modal');
-  });
+
+
+  document.getElementById('move-items-success-close').addEventListener('click', () => {
+  hideModal('move-items-success-modal');
+});
 }
 
 // Set up IPC event handlers
