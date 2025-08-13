@@ -37,6 +37,7 @@ let csgo; // GlobalOffensive instance
 let community; // SteamCommunity instance
 let lastReceivedToken = null;
 let logStream; // For file logging
+let deviceTokenRequestInProgress = false;
 
 
 
@@ -348,6 +349,8 @@ async function withDeviceTokenRetry(apiCall, ...args) {
     throw error;
   }
 }
+
+
 
 
 
@@ -1721,11 +1724,8 @@ async function validateAllStoredTokens() {
  * @returns {Promise<string>} Device token
  */
 async function ensureDeviceToken(steamId) {
-  // 1) Check if Keytar already has a device token
-  const existingToken = await keytar.getPassword(
-    SERVICE_NAME,
-    DEVICE_TOKEN_KEY
-  );
+  // Check if Keytar already has a device token
+  const existingToken = await keytar.getPassword(SERVICE_NAME, DEVICE_TOKEN_KEY);
   
   if (existingToken) {
     logger.info("Device token found in Keytar. No 2FA needed.");
@@ -1734,38 +1734,74 @@ async function ensureDeviceToken(steamId) {
 
   logger.info("No device token in Keytar. Initiating 2FA flow via Flask...");
 
-  // 2) Make device_token_request
+
+  if (deviceTokenRequestInProgress) {
+    logger.warn("Device token request already in progress, skipping duplicate");
+    return;
+  }
+
   try {
-    // Adjust the URL to your actual endpoint
-    await axios.post(
+    // Make initial device_token_request
+    let response = await axios.post(
       `${API_BASE_URL}/device_token_request`,
-      {
-        steam_id: steamId,
-      }
+      { steam_id: steamId }
     );
 
-    // 3) Prompt user for the 2FA code from their email
-    const twoFaCode = await promptUserFor2FACodeInRenderer();
-
-    // 4) device_token_confirm
-    const confirmResp = await axios.post(
-      `${API_BASE_URL}/device_token_confirm`,
-      {
-        steam_id: steamId,
-        code: twoFaCode,
+    // Check if email is required
+    if (response.data.status === 'email_required') {
+      logger.info("User has no email on file, requesting email from user...");
+      
+      // Prompt user for email
+      const userEmail = await promptUserForEmail();
+      
+      if (!userEmail) {
+        throw new Error("Email is required for 2FA verification");
       }
-    );
-
-    if (!confirmResp.data || !confirmResp.data.device_token) {
-      throw new Error("Flask returned no device_token");
+      
+      // Retry with email
+      response = await axios.post(
+        `${API_BASE_URL}/device_token_request`,
+        { 
+          steam_id: steamId,
+          email: userEmail 
+        }
+      );
+      
+      if (response.data.status !== '2fa_sent') {
+        throw new Error("Failed to send 2FA after providing email");
+      }
     }
     
-    const newToken = confirmResp.data.device_token;
-    logger.info("Device token obtained from Flask");
-
-    // 5) Store in Keytar
-    await keytar.setPassword(SERVICE_NAME, DEVICE_TOKEN_KEY, newToken);
-    return newToken;
+    // At this point, 2FA has been sent
+    if (response.data.status === '2fa_sent') {
+      logger.info(`2FA sent to ${response.data.email_masked || 'email'}`);
+      
+      // Prompt for 2FA code
+      const twoFaCode = await promptUserFor2FACodeInRenderer();
+      
+      // Confirm with the code
+      const confirmResp = await axios.post(
+        `${API_BASE_URL}/device_token_confirm`,
+        {
+          steam_id: steamId,
+          code: twoFaCode
+        }
+      );
+      
+      if (!confirmResp.data || !confirmResp.data.device_token) {
+        throw new Error("Flask returned no device_token");
+      }
+      
+      const newToken = confirmResp.data.device_token;
+      logger.info("Device token obtained from Flask");
+      
+      // Store in Keytar
+      await keytar.setPassword(SERVICE_NAME, DEVICE_TOKEN_KEY, newToken);
+      return newToken;
+    }
+    
+    throw new Error("Unexpected response from server");
+    
   } catch (err) {
     if (err.response) {
       logger.error(
@@ -1777,6 +1813,34 @@ async function ensureDeviceToken(steamId) {
     }
     throw err;
   }
+}
+
+// Add new function to prompt for email
+async function promptUserForEmail() {
+  return new Promise((resolve, reject) => {
+    // Set up timeout
+    const timeout = setTimeout(() => {
+      reject(new Error("Email prompt timeout"));
+    }, 300000); // 5 minute timeout
+    
+    ipcMain.once("email-submitted", (event, email) => {
+      clearTimeout(timeout);
+      resolve(email);
+    });
+    
+    ipcMain.once("email-cancelled", () => {
+      clearTimeout(timeout);
+      resolve(null);
+    });
+    
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("please-enter-email");
+      logger.info("Email prompt sent to renderer");
+    } else {
+      clearTimeout(timeout);
+      reject(new Error("Main window not available"));
+    }
+  });
 }
 
 /**

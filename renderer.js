@@ -1130,6 +1130,70 @@ async function moveItemsFromStorage() {
   }
 }
 
+
+// Add this function for email submission
+function submitEmail() {
+  const emailInput = document.getElementById('email-input');
+  const submitButton = document.getElementById('email-submit');
+  const email = emailInput.value.trim();
+  
+  // Prevent double submission
+  if (submitButton.disabled) {
+    console.log('Submit already in progress');
+    return;
+  }
+  
+  if (!email) {
+    toast.warning('Please enter your email address');
+    return;
+  }
+  
+  // Disable button immediately
+  submitButton.disabled = true;
+  submitButton.textContent = 'Sending...';
+  
+  logger.log(`Submitting email address: ${email.substring(0, 3)}***`);
+  window.electronAPI.sendEmail(email);
+  emailInput.value = '';
+  hideModal('email-request-modal');
+  showLoading();
+  toast.info('Sending 2FA code to your email...');
+  
+  // Re-enable after a delay (in case of error)
+  setTimeout(() => {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Send 2FA Code';
+    }
+  }, 5000);
+}
+
+// Add this in setupEventListeners() function
+// Email modal buttons
+document.getElementById('email-submit').addEventListener('click', submitEmail);
+// Replace the existing email-cancel handler with this:
+document.getElementById('email-cancel').addEventListener('click', () => {
+  // Show confirmation before allowing cancel
+  if (confirm('Without providing an email, you cannot complete authentication. Are you sure you want to cancel? You will need to restart the application to try again.')) {
+    hideModal('email-request-modal');
+    window.electronAPI.cancelEmail();
+    hideLoading();
+    
+    // Optionally redirect back to login
+    showView('login');
+    toast.error('Authentication cancelled. Please restart the application to try again.');
+  }
+});
+
+// Allow Enter key to submit email
+document.getElementById('email-input').addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    submitEmail();
+  }
+});
+
+
+
 // Event Listeners
 function setupEventListeners() {
   // Login form submit
@@ -1155,25 +1219,52 @@ function setupEventListeners() {
       if (modal) hideModal(modal.id);
     });
   });
+
+
+  // Prevent ESC key from closing critical modals
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const emailModal = document.getElementById('email-request-modal');
+      const device2faModal = document.getElementById('device-2fa-modal');
+      
+      // Check if email modal is visible
+      if (emailModal && emailModal.style.display === 'flex') {
+        e.preventDefault();
+        toast.warning('Please enter your email address to continue');
+        return;
+      }
+      
+      // Check if 2FA modal is visible
+      if (device2faModal && device2faModal.style.display === 'flex') {
+        e.preventDefault();
+        toast.warning('Please enter the 2FA code to continue');
+        return;
+      }
+    }
+  });
   
+  // Replace the existing modal overlay click handler with this:
   document.querySelectorAll('.modal-overlay').forEach(modal => {
     modal.addEventListener('click', (e) => {
       if (e.target === modal) {
-        // Prevent dismissing these critical modals
-        const nonDismissibleModals = ['device-2fa-modal', 'move-items-modal', 'scan-all-modal'];
+        // Prevent closing the email-request-modal by clicking outside
+        if (modal.id === 'email-request-modal') {
+          e.stopPropagation();
+          toast.warning('Please enter your email address to continue, or close the application if you wish to cancel.');
+          return;
+        }
         
-        if (nonDismissibleModals.includes(modal.id)) {
-          if (modal.id === 'scan-all-modal' && scanAllState.isScanning) {
-            e.stopPropagation();
-            toast.warning('Please wait for the scan to complete or click Cancel');
-            return;
-          } else if (modal.id === 'move-items-modal') {
-            e.stopPropagation();
-            toast.warning('Please click "Move Items Now" to continue');
-            return;
-          } else if (modal.id === 'device-2fa-modal') {
-            return; // Already handled
-          }
+        // Prevent closing scan-all modal during scanning
+        if (modal.id === 'scan-all-modal' && scanAllState.isScanning) {
+          e.stopPropagation();
+          toast.warning('Please wait for the scan to complete or click Cancel');
+          return;
+        }
+        
+        // Prevent closing device-2fa-modal
+        if (modal.id === 'device-2fa-modal') {
+          // Don't allow clicking away from 2FA modal either
+          return;
         }
         
         hideModal(modal.id);
@@ -1225,6 +1316,15 @@ function setupEventListeners() {
 function setupIPCHandlers() {
 
 
+window.electronAPI.onPleaseEnterEmail(() => {
+  hideLoading();
+  showModal('email-request-modal');
+  // Focus the email input
+  setTimeout(() => {
+    const emailInput = document.getElementById('email-input');
+    if (emailInput) emailInput.focus();
+  }, 100);
+});
 
 
 

@@ -38,6 +38,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   onDeviceTokenExpired: (callback) => ipcRenderer.on('device-token-expired', callback),
   refreshDeviceToken: () => ipcRenderer.invoke('refresh-device-token'),
+  
+  // Add these to the electronAPI exposure in contextBridge.exposeInMainWorld
+  onPleaseEnterEmail: (callback) => ipcRenderer.on('please-enter-email', callback),
+  sendEmail: (email) => ipcRenderer.send('email-submitted', email),
+  cancelEmail: () => ipcRenderer.send('email-cancelled'),
 
 
 
